@@ -1,0 +1,7 @@
+[project]
+name = "mpl-wrap"
+version = "0.1.0"
+description = "Matplotlib helper library for plotting wrapped, angular, or periodic data."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
