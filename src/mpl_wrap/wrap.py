@@ -185,7 +185,7 @@ def set_wrap(
     seam_lines: bool = False,
     margin: float = 0.05,
     seam_kwargs: dict[str, Any] | None = None,
-) -> list[Line2D]:
+) -> Axes:
     """Store wrap window(s) on an axes so the plotting helpers use them by default.
 
     After ``set_wrap(ax, wrapy=(0, 360))``, helpers called on ``ax`` without an
@@ -212,11 +212,10 @@ def set_wrap(
 
     Returns
     -------
-    list of matplotlib.lines.Line2D
-        The seam line artists that were drawn (empty if ``seam_lines=False``).
+    matplotlib.axes.Axes
+        The same axes, for chaining.
     """
     windows: dict[str, np.ndarray] = dict(getattr(ax, _WINDOW_ATTR, {}))
-    artists: list[Line2D] = []
     style: dict[str, Any] = {"color": "k", "linewidth": 0.8}
     style.update(seam_kwargs or {})
     for name, wrap, axis, set_lim, seam in (
@@ -234,10 +233,10 @@ def set_wrap(
             pad = margin * (w[1] - w[0])
             set_lim(w[0] - pad, w[1] + pad)
         if seam_lines:
-            artists.append(seam(w[0], **style))
-            artists.append(seam(w[1], **style))
+            seam(w[0], **style)
+            seam(w[1], **style)
     setattr(ax, _WINDOW_ATTR, windows)
-    return artists
+    return ax
 
 
 def plot_wrapped(

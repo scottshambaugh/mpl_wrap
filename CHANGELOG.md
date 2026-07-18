@@ -4,7 +4,6 @@
 ### Features & Maintenance:
 - Numerical + smoke test suite
 - README documentation with generated example graphics
-- A wrapped `Axes` subclass
 
 ----
 
@@ -15,5 +14,8 @@
   wrapped/periodic axes, with `wrapx`/`wrapy` (min, max) windows and datetime support
 * `set_wrap` helper to store wrap windows on an axes (picked up by the helpers
   by default), optionally setting axis limits and drawing seam lines
+* `AxesWrap` class with the helpers as methods, available as the `"wrap"`
+  projection, and `wrap_axes` to upgrade an existing axes of any projection in
+  place (picklable in both cases)
 ### Changed
 ### Removed

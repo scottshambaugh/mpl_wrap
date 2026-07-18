@@ -71,6 +71,31 @@ pass `seam_lines=True` to mark the window edges with lines.
 You must pass the original unwrapped data for these to work.
 If your data is already wrapped, [`np.unwrap`](https://numpy.org/doc/stable/reference/generated/numpy.unwrap.html) may be able to recover that if it's sampled at a high enough rate.
 
+### API
+
+The helpers are free functions, and are also available as methods on an
+`AxesWrap` axes. These three are equivalent:
+
+```python
+from mpl_wrap import set_wrap, plot_wrapped, wrap_axes
+
+# 1. Free functions, on any existing axes
+fig, ax = plt.subplots()
+set_wrap(ax, wrapy=(0, 360))
+plot_wrapped(ax, t, angle)
+
+# 2. Methods on an AxesWrap axes, created with the "wrap" projection
+fig, ax = plt.subplots(subplot_kw={"projection": "wrap"})
+ax.set_wrap(wrapy=(0, 360))
+ax.plot_wrapped(t, angle)
+
+# 3. Methods on an existing axes, upgraded in place from Axes to AxesWrap
+fig, ax = plt.subplots()
+wrap_axes(ax, wrapy=(0, 360))
+ax.plot_wrapped(t, angle)
+```
+
+
 ### Wrapping x, y, or both
 
 Both axes can be wrapped independently or together:
