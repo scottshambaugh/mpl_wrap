@@ -160,7 +160,7 @@ def test_scatter_wrapped_folds_points() -> None:
     _, ax = plt.subplots()
     pc = scatter_wrapped(ax, [0.5, 0.5, 0.5], [10.0, 370.0, 360.0], wrapy=WRAP360)
     offsets = _arr(pc.get_offsets())
-    # 370 folds to 10; a point exactly at the window max maps to the min
+    # 370 folds to 10, and a point exactly at the window max maps to the min
     assert np.allclose(offsets[:, 1], [10.0, 10.0, 0.0])
     assert np.allclose(offsets[:, 0], 0.5)
 
@@ -281,6 +281,9 @@ def test_errorbar_wrapped_container_structure() -> None:
     assert len(barlinecols) == 1
     assert container.get_label() == "pts"
     assert container in ax.containers
+    # Only the container is labeled, so the legend shows one entry (as in ax.errorbar)
+    _, labels = ax.get_legend_handles_labels()
+    assert labels == ["pts"]
 
 
 def test_errorbar_wrapped_bar_splits_at_seam() -> None:
@@ -328,27 +331,28 @@ def test_errorbar_wrapped_all_nan_makes_no_segments() -> None:
 # set_wrap
 
 
-def test_set_wrap_stores_window_and_decorates() -> None:
+def test_set_wrap_stores_window_and_sets_lims() -> None:
     _, ax = plt.subplots()
     lines = set_wrap(ax, wrapy=WRAP360)
-    assert len(lines) == 2
+    assert lines == []  # seam lines are opt-in
     assert ax.get_ylim() == (-18.0, 378.0)  # 5% period margin
 
     (ln,) = plot_wrapped(ax, [0.0, 1.0], [350.0, 370.0])
     assert np.nanmax(_arr(ln.get_ydata())) <= 360.0
 
 
-def test_set_wrap_no_lims_no_seams() -> None:
+def test_set_wrap_no_lims() -> None:
     _, ax = plt.subplots()
     ylim = ax.get_ylim()
-    lines = set_wrap(ax, wrapy=WRAP360, set_lims=False, seam_lines=False)
-    assert lines == []
+    set_wrap(ax, wrapy=WRAP360, set_lims=False)
     assert ax.get_ylim() == ylim
 
 
-def test_set_wrap_seam_kwargs() -> None:
+def test_set_wrap_seam_lines() -> None:
     _, ax = plt.subplots()
-    lines = set_wrap(ax, wrapy=WRAP360, seam_kwargs={"color": "C3"})
+    lines = set_wrap(ax, wrapy=WRAP360, seam_lines=True, seam_kwargs={"color": "C3"})
+    assert len(lines) == 2
+    assert sorted(_arr(ln.get_ydata())[0] for ln in lines) == [0.0, 360.0]
     assert all(ln.get_color() == "C3" for ln in lines)
 
 
