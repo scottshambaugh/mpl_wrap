@@ -88,8 +88,8 @@ def _resolve_wrap(ax: Axes, name: str, wrap: WrapSpec) -> np.ndarray | None:
     if wrap is True:
         if name not in stored:
             raise ValueError(
-                f"wrap{name}=True, but no {name} wrap window is stored on this axes; "
-                f"call set_wrap(ax, wrap{name}=...) first"
+                f"wrap{name}=True, but no {name} wrap window is stored on this axes. "
+                f"Call set_wrap(ax, wrap{name}=...) first."
             )
         return stored[name]
     if wrap is not None:
@@ -155,7 +155,7 @@ def set_wrap(
         if wrap is None:
             continue
         if wrap is True:
-            raise ValueError(f"wrap{name}=True is not valid in set_wrap; pass a (min, max) window")
+            raise ValueError(f"wrap{name}=True is not valid in set_wrap. Pass a (min, max) window.")
         if wrap is False:
             windows.pop(name, None)
             continue

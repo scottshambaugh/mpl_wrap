@@ -80,7 +80,7 @@ def wrapy_demo(savedir: Path = SAVEDIR) -> None:
     stairs_style: dict[str, Any] = {"color": "C1", "label": "stairs"}
     err_style: dict[str, Any] = {"fmt": "o", "ms": 3, "color": "C2", "label": "errorbar"}
 
-    fig, axs = plt.subplots(3, 1, figsize=(9, 12), sharex=True)
+    fig, axs = plt.subplots(3, 1, figsize=(9, 10), sharex=True)
     for index, ax in enumerate(axs):
         ax.set(xlim=(x[0], x[-1]), ylabel="angle (deg)")
         ax.grid(True, alpha=0.3)
@@ -95,17 +95,17 @@ def wrapy_demo(savedir: Path = SAVEDIR) -> None:
     axs[0].stairs(values, edges, baseline=None, **stairs_style)
     axs[0].errorbar(err_x, err_y, err_yerr, **err_style)
 
-    axs[1].set_title("Modulus (y % 360)")
-    axs[1].fill_between(x, lower % period, upper % period, **band_style)
-    axs[1].plot(x, center % period, **line_style)
-    axs[1].stairs(values % period, edges, baseline=None, **stairs_style)
-    axs[1].errorbar(err_x, err_y % period, err_yerr, **err_style)
+    axs[1].set_title("mpl_wrap")
+    fill_between_wrapped(axs[1], x, lower, upper, **band_style)
+    plot_wrapped(axs[1], x, center, **line_style)
+    stairs_wrapped(axs[1], values, edges, **stairs_style)
+    errorbar_wrapped(axs[1], err_x, err_y, err_yerr, **err_style)
 
-    axs[2].set_title("mpl_wrap")
-    fill_between_wrapped(axs[2], x, lower, upper, **band_style)
-    plot_wrapped(axs[2], x, center, **line_style)
-    stairs_wrapped(axs[2], values, edges, **stairs_style)
-    errorbar_wrapped(axs[2], err_x, err_y, err_yerr, **err_style)
+    axs[2].set_title("Modulus (y % 360)")
+    axs[2].fill_between(x, lower % period, upper % period, **band_style)
+    axs[2].plot(x, center % period, **line_style)
+    axs[2].stairs(values % period, edges, baseline=None, **stairs_style)
+    axs[2].errorbar(err_x, err_y % period, err_yerr, **err_style)
 
     axs[0].legend(loc="upper left")
     _save_demo(fig, savedir, "wrapy_demo.png")

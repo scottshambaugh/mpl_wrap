@@ -16,12 +16,16 @@ but introduces a few problems:
 data easy.
 
 <p align="center">
-  <img src="docs/wrapy_demo.png" alt="Unwrapped vs modulus vs mpl_wrap" width="600">
+  <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/wrapy_demo.png" alt="Unwrapped vs modulus vs mpl_wrap" width="600">
 </p>
 
 ## Installation
 
-Not yet released to PyPI. Install from source:
+```
+pip install mpl_wrap
+```
+
+Or install from source:
 
 ```
 git clone https://github.com/scottshambaugh/mpl_wrap.git
@@ -49,7 +53,7 @@ ax.legend()
 ```
 
 <p align="center">
-  <img src="docs/basic_usage.png" alt="Basic usage: wrapped angle with uncertainty band and error bars" width="600">
+  <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/basic_usage.png" alt="Basic usage: wrapped angle with uncertainty band and error bars" width="600">
 </p>
 
 The helpers mirror their matplotlib counterparts, taking the target `Axes` as
@@ -106,7 +110,7 @@ take data plus windows and return the wrapped arrays without plotting anything
 Both axes can be wrapped independently or together:
 
 <p align="center">
-  <img src="docs/circle_demo.png" alt="Circle wrapped in x, y, and both" width="500">
+  <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/circle_demo.png" alt="Circle wrapped in x, y, and both" width="500">
 </p>
 
 ### Datetime axes
@@ -120,5 +124,5 @@ plot_wrapped(ax, times, signal)
 ```
 
 <p align="center">
-  <img src="docs/datetime_demo.png" alt="Datetime wrapping" width="600">
+  <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/datetime_demo.png" alt="Datetime wrapping" width="600">
 </p>

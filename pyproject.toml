@@ -6,6 +6,7 @@ authors = [{ name = "Scott Shambaugh", email = "scottshambaugh@users.noreply.git
 requires-python = ">=3.10, <4"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
     "Framework :: Matplotlib",
     "Operating System :: OS Independent",
@@ -23,6 +24,10 @@ dependencies = [
     "matplotlib>=3.10.0",
     "numpy>=1.26",
 ]
+
+[project.urls]
+Repository = "https://github.com/scottshambaugh/mpl_wrap"
+Changelog = "https://github.com/scottshambaugh/mpl_wrap/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

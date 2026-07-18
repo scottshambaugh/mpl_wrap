@@ -1,7 +1,7 @@
 """Pure data processing for wrapping: fold arrays into a (min, max) window.
 
 Numeric arrays in, numeric arrays out - no ``Axes`` and no artists. `wrap_line`
-and `wrap_points` are the public entry points; the plotting helpers in
+and `wrap_points` are the public entry points. The plotting helpers in
 ``mpl_wrap.plot`` consume them after resolving axis units and stored windows.
 """
 
