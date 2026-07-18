@@ -1,1 +1,22 @@
-*.pyc
+__pycache__/
+*.py[cod]
+*.egg-info
+
+# Local configs
+mypy.ini
+.venv/
+
+# Build
+dist/
+
+# Pytest
+.hypothesis/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# VSCode
+.vscode/
+
+# Jupyter cache
+*.ipynb_checkpoints

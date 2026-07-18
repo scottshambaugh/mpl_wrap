@@ -1,7 +1,43 @@
 [project]
-name = "mpl-wrap"
+name = "mpl_wrap"
 version = "0.1.0"
 description = "Matplotlib helper library for plotting wrapped, angular, or periodic data."
+authors = [{ name = "Scott Shambaugh", email = "scottshambaugh@users.noreply.github.com" }]
+requires-python = ">=3.10, <4"
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+license = "MIT"
+classifiers = [
+    "Framework :: Matplotlib",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Visualization",
+
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "matplotlib>=3.10.0",
+    "numpy>=1.26",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.14.0",
+    "prek>=0.3",
+    "mypy~=1.7",
+]
+
+[build-system]
+requires = ["uv_build>=0.9, <0.12"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+# Prototype script, absorbed into src/ in a later step
+extend-exclude = ["wrapped_axis_helpers_demo.py"]
