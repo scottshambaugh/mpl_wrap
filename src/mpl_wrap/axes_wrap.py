@@ -9,6 +9,7 @@ unwrapped artists mix freely on one axes.
 
 from typing import Any
 
+import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.collections import PathCollection
 from matplotlib.container import ErrorbarContainer
@@ -16,8 +17,9 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
 from matplotlib.projections import register_projection
 
-from mpl_wrap import wrap as _wrap
-from mpl_wrap.wrap import WrapSpec
+from mpl_wrap import data as _data
+from mpl_wrap import plot as _plot
+from mpl_wrap.plot import WrapSpec
 
 __all__ = [
     "AxesWrap",
@@ -39,28 +41,52 @@ class AxesWrapBase(Axes):
 
     def set_wrap(self, *args: Any, **kwargs: Any) -> "AxesWrapBase":
         """Store wrap window(s) on this axes. See `mpl_wrap.set_wrap`. Returns self."""
-        _wrap.set_wrap(self, *args, **kwargs)
+        _plot.set_wrap(self, *args, **kwargs)
         return self
 
     def plot_wrapped(self, *args: Any, **kwargs: Any) -> list[Line2D]:
         """Plot a line wrapped into the window. See `mpl_wrap.plot_wrapped`."""
-        return _wrap.plot_wrapped(self, *args, **kwargs)
+        return _plot.plot_wrapped(self, *args, **kwargs)
 
     def scatter_wrapped(self, *args: Any, **kwargs: Any) -> PathCollection:
         """Scatter points folded into the window. See `mpl_wrap.scatter_wrapped`."""
-        return _wrap.scatter_wrapped(self, *args, **kwargs)
+        return _plot.scatter_wrapped(self, *args, **kwargs)
 
     def fill_between_wrapped(self, *args: Any, **kwargs: Any) -> PathPatch:
         """Fill a band wrapped into the window. See `mpl_wrap.fill_between_wrapped`."""
-        return _wrap.fill_between_wrapped(self, *args, **kwargs)
+        return _plot.fill_between_wrapped(self, *args, **kwargs)
 
     def stairs_wrapped(self, *args: Any, **kwargs: Any) -> list[Line2D]:
         """Step plot wrapped into the window. See `mpl_wrap.stairs_wrapped`."""
-        return _wrap.stairs_wrapped(self, *args, **kwargs)
+        return _plot.stairs_wrapped(self, *args, **kwargs)
 
     def errorbar_wrapped(self, *args: Any, **kwargs: Any) -> ErrorbarContainer:
         """Errorbars wrapped into the window. See `mpl_wrap.errorbar_wrapped`."""
-        return _wrap.errorbar_wrapped(self, *args, **kwargs)
+        return _plot.errorbar_wrapped(self, *args, **kwargs)
+
+    def wrap_line(
+        self, x: Any, y: Any, *, wrapx: WrapSpec = None, wrapy: WrapSpec = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return a polyline's wrapped data without plotting it.
+
+        The axes-aware form of `mpl_wrap.wrap_line`: windows default to those
+        stored by ``set_wrap``, and datetime data and windows are converted
+        through the axis units.
+        """
+        x, y, wx, wy = _plot._prepare_xy(self, x, y, wrapx, wrapy)
+        return _data.wrap_line(x, y, wrapx=wx, wrapy=wy)
+
+    def wrap_points(
+        self, x: Any, y: Any, *, wrapx: WrapSpec = None, wrapy: WrapSpec = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return points folded into the window without plotting them.
+
+        The axes-aware form of `mpl_wrap.wrap_points`: windows default to those
+        stored by ``set_wrap``, and datetime data and windows are converted
+        through the axis units.
+        """
+        x, y, wx, wy = _plot._prepare_xy(self, x, y, wrapx, wrapy)
+        return _data.wrap_points(x, y, wrapx=wx, wrapy=wy)
 
     def __reduce__(self) -> tuple[Any, ...]:
         # Wrap classes made by _axes_wrap_class cannot be pickled by reference,
@@ -116,7 +142,6 @@ def wrap_axes(
     *,
     set_lims: bool = True,
     seam_lines: bool = False,
-    margin: float = 0.05,
     seam_kwargs: dict[str, Any] | None = None,
 ) -> AxesWrapBase:
     """Upgrade an existing axes in place to an `AxesWrap`.
@@ -130,7 +155,7 @@ def wrap_axes(
     ----------
     ax : matplotlib.axes.Axes
         The axes to upgrade, modified in place.
-    wrapx, wrapy, set_lims, seam_lines, margin, seam_kwargs
+    wrapx, wrapy, set_lims, seam_lines, seam_kwargs
         Forwarded to `set_wrap`.
 
     Returns
@@ -140,12 +165,5 @@ def wrap_axes(
     """
     ax.__class__ = _axes_wrap_class(type(ax))
     assert isinstance(ax, AxesWrapBase)
-    ax.set_wrap(
-        wrapx,
-        wrapy,
-        set_lims=set_lims,
-        seam_lines=seam_lines,
-        margin=margin,
-        seam_kwargs=seam_kwargs,
-    )
+    ax.set_wrap(wrapx, wrapy, set_lims=set_lims, seam_lines=seam_lines, seam_kwargs=seam_kwargs)
     return ax

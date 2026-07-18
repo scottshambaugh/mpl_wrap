@@ -38,7 +38,7 @@ from mpl_wrap import set_wrap, plot_wrapped, fill_between_wrapped, errorbar_wrap
 
 t = np.linspace(0, 10, 500)
 angle = 80.0 * t  # degrees
-width = 5.0 + 4.0 * t
+width = 5.0 + 4.0 * t  # degrees
 
 fig, ax = plt.subplots()
 set_wrap(ax, wrapy=(0, 360))  # helpers on ax now wrap y into (0, 360)
@@ -64,9 +64,11 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `errorbar_wrapped(ax, x, y, yerr, xerr)` | `ax.errorbar`     |
 
 Passing `wrapx=False` / `wrapy=False` disables wrapping for a single call (or
-clears the stored window when passed to `set_wrap`). `set_wrap` also sets the
-axis limits (with a small margin) by default. Opt out with `set_lims=False`, or
-pass `seam_lines=True` to mark the window edges with lines.
+clears the stored window when passed to `set_wrap`), and `wrapx=True` /
+`wrapy=True` requires the stored window.
+`set_wrap` also sets the axis limits to the window by default. Opt out with
+`set_lims=False`, or pass `seam_lines=True` to mark the window edges with
+lines.
 
 You must pass the original unwrapped data for these to work.
 If your data is already wrapped, [`np.unwrap`](https://numpy.org/doc/stable/reference/generated/numpy.unwrap.html) may be able to recover that if it's sampled at a high enough rate.
@@ -95,6 +97,9 @@ wrap_axes(ax, wrapy=(0, 360))
 ax.plot_wrapped(t, angle)
 ```
 
+The data processing is also exposed on its own: `wrap_line` and `wrap_points`
+take data plus windows and return the wrapped arrays without plotting anything
+(also available as `AxesWrap` methods).
 
 ### Wrapping x, y, or both
 
@@ -106,8 +111,8 @@ Both axes can be wrapped independently or together:
 
 ### Datetime axes
 
-Datetime data and windows work on either axis. Here a five-day series is folded
-onto a single day, overlaying its daily cycles as a time-of-day view:
+Datetime data and windows work on either axis. Here a five-day series is wrapped
+to show a time-of-day view:
 
 ```python
 set_wrap(ax, wrapx=(t0, t0 + np.timedelta64(1, "D")))

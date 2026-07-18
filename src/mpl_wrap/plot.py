@@ -8,7 +8,7 @@ on an axes so subsequent calls pick it up automatically.
 """
 
 from collections.abc import Iterable
-from typing import Any, Literal, Union, overload
+from typing import Any, Union, overload
 
 import matplotlib as mpl
 import numpy as np
@@ -19,6 +19,16 @@ from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path
+
+from mpl_wrap.data import (
+    _error_bounds,
+    _nan_joined_extents,
+    _saturated_band_vertices,
+    _tiled_band_vertices,
+    _wrap_to_segments,
+    wrap_line,
+    wrap_points,
+)
 
 __all__ = [
     "set_wrap",
@@ -31,9 +41,10 @@ __all__ = [
 
 # Wrap window spec:
 # - (min, max) pair in data units (datetimes allowed)
+# - True to require the window stored by set_wrap
 # - False to explicitly disable wrapping on an axis with a stored window
 # - None to fall back to the window stored by set_wrap (if any).
-WrapSpec = Union[Iterable[Any], Literal[False], None]
+WrapSpec = Union[Iterable[Any], bool, None]
 
 _WINDOW_ATTR = "_mpl_wrap_windows"
 
@@ -68,14 +79,22 @@ def _to_num(axis: Axis, values: Any) -> np.ndarray | None:
 def _resolve_wrap(ax: Axes, name: str, wrap: WrapSpec) -> np.ndarray | None:
     """Resolve a wrap spec: explicit window, else the set_wrap stored window, else None.
 
-    False explicitly disables wrapping even when a stored window exists.
+    True requires a stored window, and False explicitly disables wrapping even
+    when a stored window exists.
     """
     if wrap is False:
         return None
-    axis = ax.xaxis if name == "x" else ax.yaxis
-    if wrap is not None:
-        return _to_num(axis, wrap)
     stored: dict[str, np.ndarray] = getattr(ax, _WINDOW_ATTR, {})
+    if wrap is True:
+        if name not in stored:
+            raise ValueError(
+                f"wrap{name}=True, but no {name} wrap window is stored on this axes; "
+                f"call set_wrap(ax, wrap{name}=...) first"
+            )
+        return stored[name]
+    if wrap is not None:
+        axis = ax.xaxis if name == "x" else ax.yaxis
+        return _to_num(axis, wrap)
     return stored.get(name)
 
 
@@ -90,92 +109,6 @@ def _prepare_xy(
     return x_num, y_num, wx, wy
 
 
-def _wrap_polyline(
-    x: np.ndarray, y: np.ndarray, wrapy: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Wrap a polyline's y into the window as one NaN-broken polyline.
-
-    At each period boundary a segment crosses, the line is routed to the window
-    edge, broken with a NaN, and resumed from the opposite edge. Seam crossings
-    connect at the correct slope, a multi-period segment sweeps the window once per
-    period, and non-finite inputs pass through as breaks.
-    To wrap x instead, call with x and y swapped. To wrap both, compose the two.
-    """
-    x = np.asarray(x, dtype=float)
-    y = np.asarray(y, dtype=float)
-    y0, y1 = wrapy
-    period = y1 - y0
-    n = len(y)
-    if n == 0:
-        return x.copy(), y.copy()
-
-    # Each sample's period band is k = floor((y - y0)/period), so its wrapped value
-    # is y - k*period, and a segment crosses |dk| period boundaries. Both are computed
-    # vectorized, then the sample points and the 3-vertex crossing routes (edge, NaN
-    # break, opposite edge) are scattered into one output array by index arithmetic.
-    finite = np.isfinite(x) & np.isfinite(y)
-    k = np.floor(np.where(finite, (y - y0) / period, 0.0))
-    wrapped = np.where(finite, y - k * period, y)
-
-    dk = np.where(finite[:-1] & finite[1:], (k[1:] - k[:-1]), 0.0).astype(np.int64)
-    ncross = np.abs(dk)
-    total = int(ncross.sum())
-    if total == 0:
-        return x, wrapped
-
-    before = np.concatenate([[0], np.cumsum(ncross)])  # crossings before each sample
-    sample_idx = np.arange(n) + 3 * before
-    out_x = np.empty(n + 3 * total)
-    out_y = np.empty_like(out_x)
-    out_x[sample_idx] = x
-    out_y[sample_idx] = wrapped
-
-    seg = np.repeat(np.arange(n - 1), ncross)  # segment each crossing belongs to
-    rank = np.arange(total) - np.repeat(before[:-1], ncross)  # 0-based rank within segment
-    asc = dk[seg] > 0
-    # Ascending crossings go up through boundaries k+1..k[i+1], descending down
-    # through k..k[i+1]+1. Interpolate the crossing x on the segment.
-    level = np.where(asc, k[:-1][seg] + 1 + rank, k[:-1][seg] - rank)
-    yc = y0 + level * period
-    xi, xj, yi, yj = x[:-1][seg], x[1:][seg], y[:-1][seg], y[1:][seg]
-    xc = xi + (yc - yi) / (yj - yi) * (xj - xi)
-
-    start = sample_idx[:-1][seg] + 1 + 3 * rank  # first of the crossing's 3 vertices
-    out_x[start] = out_x[start + 1] = out_x[start + 2] = xc
-    out_y[start] = np.where(asc, y1, y0)  # exit edge
-    out_y[start + 1] = np.nan
-    out_y[start + 2] = np.where(asc, y0, y1)  # enter edge
-    return out_x, out_y
-
-
-def _wrap_xy(
-    x: np.ndarray,
-    y: np.ndarray,
-    wrapx: np.ndarray | None,
-    wrapy: np.ndarray | None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Wrap a polyline into the given x and/or y windows by composing _wrap_polyline."""
-    x = np.asarray(x, dtype=float)
-    y = np.asarray(y, dtype=float)
-    if wrapy is not None:
-        x, y = _wrap_polyline(x, y, wrapy)
-    if wrapx is not None:
-        y, x = _wrap_polyline(y, x, wrapx)
-    return x, y
-
-
-def _wrap_points(v: np.ndarray, wrap: np.ndarray | None) -> np.ndarray:
-    """Fold point values into the wrap window (NaNs pass through)."""
-    return v if wrap is None else (v - wrap[0]) % (wrap[1] - wrap[0]) + wrap[0]
-
-
-def _contiguous_runs(idx: np.ndarray) -> list[np.ndarray]:
-    """Split a sorted index array into runs of consecutive indices."""
-    if len(idx) == 0:
-        return []
-    return np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1)
-
-
 def set_wrap(
     ax: Axes,
     wrapx: WrapSpec = None,
@@ -183,7 +116,6 @@ def set_wrap(
     *,
     set_lims: bool = True,
     seam_lines: bool = False,
-    margin: float = 0.05,
     seam_kwargs: dict[str, Any] | None = None,
 ) -> Axes:
     """Store wrap window(s) on an axes so the plotting helpers use them by default.
@@ -202,11 +134,9 @@ def set_wrap(
         Wrap window for the x/y axis, in data units (datetimes allowed).
         ``False`` clears a previously stored window, and None leaves it unchanged.
     set_lims : bool, default True
-        Set the axis limits of each given window to the window plus ``margin``.
+        Set the axis limits of each given window to the window.
     seam_lines : bool, default False
         Draw lines at the window edges of each given window.
-    margin : float, default 0.05
-        Fraction of the period to pad the axis limits by when ``set_lims``.
     seam_kwargs : dict, optional
         Overrides for the seam line style (default ``color="k", linewidth=0.8``).
 
@@ -224,14 +154,15 @@ def set_wrap(
     ):
         if wrap is None:
             continue
+        if wrap is True:
+            raise ValueError(f"wrap{name}=True is not valid in set_wrap; pass a (min, max) window")
         if wrap is False:
             windows.pop(name, None)
             continue
         w = _to_num(axis, wrap)
         windows[name] = w
         if set_lims:
-            pad = margin * (w[1] - w[0])
-            set_lim(w[0] - pad, w[1] + pad)
+            set_lim(w[0], w[1])
         if seam_lines:
             seam(w[0], **style)
             seam(w[1], **style)
@@ -264,7 +195,8 @@ def plot_wrapped(
         Forwarded to ``ax.plot`` (format string, styling, ...).
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
-        ``False`` disables wrapping for this call.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
 
     Returns
     -------
@@ -272,7 +204,7 @@ def plot_wrapped(
         The plotted line artists, as from ``ax.plot``.
     """
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
-    xs, ys = _wrap_xy(x, y, wx, wy)
+    xs, ys = wrap_line(x, y, wrapx=wx, wrapy=wy)
     return ax.plot(xs, ys, *args, **kwargs)
 
 
@@ -302,7 +234,8 @@ def scatter_wrapped(
         Forwarded to ``ax.scatter`` (sizes, colors, styling, ...).
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
-        ``False`` disables wrapping for this call.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
 
     Returns
     -------
@@ -310,18 +243,7 @@ def scatter_wrapped(
         The scatter artist, as from ``ax.scatter``.
     """
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
-    return ax.scatter(_wrap_points(x, wx), _wrap_points(y, wy), *args, **kwargs)
-
-
-def _period_and_offsets(wrapy: np.ndarray, *ys: np.ndarray) -> tuple[float, range]:
-    """Return the wrap period and the integer period offsets covering the data."""
-    y0, y1 = wrapy
-    period = y1 - y0
-    ymin = min(float(np.nanmin(y)) for y in ys)
-    ymax = max(float(np.nanmax(y)) for y in ys)
-    m_min = int(np.floor((ymin - y1) / period))
-    m_max = int(np.ceil((ymax - y0) / period))
-    return period, range(m_min, m_max + 1)
+    return ax.scatter(*wrap_points(x, y, wrapx=wx, wrapy=wy), *args, **kwargs)
 
 
 def _clip_patch_to_window(
@@ -346,80 +268,6 @@ def _clip_patch_to_window(
     else:
         return
     patch.set_clip_path(rect)
-
-
-def _tiled_band_vertices(
-    x: np.ndarray,
-    lo: np.ndarray,
-    hi: np.ndarray,
-    wrapx: np.ndarray | None,
-    wrapy: np.ndarray | None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Tile the band at every (x, y) period offset into one path (vectorized).
-
-    Built with numpy broadcasting rather than a nested per-offset Python loop, so
-    a fast angle needing thousands of tiles is built in one shot.
-    """
-    px = 0.0 if wrapx is None else wrapx[1] - wrapx[0]
-    py = 0.0 if wrapy is None else wrapy[1] - wrapy[0]
-    x_offsets = range(1) if wrapx is None else _period_and_offsets(wrapx, x)[1]
-    y_offsets = range(1) if wrapy is None else _period_and_offsets(wrapy, lo, hi)[1]
-    my = np.fromiter(y_offsets, dtype=float)
-    nx = np.fromiter(x_offsets, dtype=float)
-    m_flat = np.repeat(my, len(nx))
-    n_flat = np.tile(nx, len(my))
-    tile_len = 2 * len(x)
-    x_tile = np.concatenate([x, x[::-1]])
-    y_tile = np.concatenate([lo, hi[::-1]])
-    x_all = (x_tile[None, :] - n_flat[:, None] * px).ravel()
-    y_all = (y_tile[None, :] - m_flat[:, None] * py).ravel()
-    codes = np.full(len(m_flat) * tile_len, Path.LINETO, dtype=np.uint8)
-    codes[::tile_len] = Path.MOVETO
-    return np.column_stack([x_all, y_all]), codes
-
-
-def _saturated_band_vertices(
-    x: np.ndarray, lo: np.ndarray, hi: np.ndarray, full: np.ndarray, wrapy: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Build the y-wrapped band path, collapsing saturated x-runs to a rectangle.
-
-    Where the band spans a full period it fills the window, so each contiguous
-    saturated x-run becomes one window-height rectangle instead of a stack of
-    tiles. The remaining narrow runs are tiled locally over just their own period
-    offsets. This avoids building the thousands of window-spanning tiles a fast,
-    mostly-saturated angle would otherwise need.
-    """
-    y0, y1 = wrapy
-    period = y1 - y0
-    verts: list[np.ndarray] = []
-    codes: list[np.ndarray] = []
-    rect_codes = np.array([Path.MOVETO, Path.LINETO, Path.LINETO, Path.LINETO], dtype=np.uint8)
-    for run in _contiguous_runs(np.nonzero(full)[0]):
-        xa, xb = x[run[0]], x[run[-1]]
-        verts.append(np.array([[xa, y0], [xb, y0], [xb, y1], [xa, y1]]))
-        codes.append(rect_codes)
-    n = len(x)
-    for run in _contiguous_runs(np.nonzero(~full)[0]):
-        # Extend each narrow run by one sample into the adjacent saturated region so
-        # its tiles bridge the transition and abut the rectangle (they meet at the
-        # boundary x-line, so no gap and no overlapping-alpha).
-        sl = slice(max(int(run[0]) - 1, 0), min(int(run[-1]) + 1, n - 1) + 1)
-        lo_r, hi_r, x_r = lo[sl], hi[sl], x[sl]
-        m = np.arange(
-            int(np.floor((lo_r.min() - y1) / period)),
-            int(np.ceil((hi_r.max() - y0) / period)) + 1,
-            dtype=float,
-        )
-        tile_len = 2 * len(x_r)
-        x_tile = np.tile(np.concatenate([x_r, x_r[::-1]]), len(m))
-        y_tile = (np.concatenate([lo_r, hi_r[::-1]])[None, :] - m[:, None] * period).ravel()
-        verts.append(np.column_stack([x_tile, y_tile]))
-        c = np.full(len(m) * tile_len, Path.LINETO, dtype=np.uint8)
-        c[::tile_len] = Path.MOVETO
-        codes.append(c)
-    if not verts:
-        return np.empty((0, 2)), np.empty(0, dtype=np.uint8)
-    return np.concatenate(verts), np.concatenate(codes)
 
 
 def fill_between_wrapped(
@@ -454,7 +302,8 @@ def fill_between_wrapped(
         ``linewidth`` defaults to 0.
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
-        ``False`` disables wrapping for this call.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
 
     Returns
     -------
@@ -523,7 +372,8 @@ def stairs_wrapped(
         Forwarded to ``ax.plot`` (``baseline`` and ``fill`` are ignored).
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
-        ``False`` disables wrapping for this call.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
 
     Returns
     -------
@@ -542,31 +392,7 @@ def stairs_wrapped(
 
     step_x = np.repeat(edges, 2)[1:-1]
     step_y = np.repeat(values, 2)
-    return ax.plot(*_wrap_xy(step_x, step_y, wx, wy), **kwargs)
-
-
-def _wrap_to_segments(
-    x: np.ndarray, y: np.ndarray, wrapx: np.ndarray | None, wrapy: np.ndarray | None
-) -> list[np.ndarray]:
-    """Wrap a (NaN-broken) polyline and split it into finite runs for a LineCollection."""
-    xs, ys = _wrap_xy(x, y, wrapx, wrapy)
-    idx = np.nonzero(np.isfinite(xs) & np.isfinite(ys))[0]
-    return [np.column_stack([xs[run], ys[run]]) for run in _contiguous_runs(idx) if len(run) >= 2]
-
-
-def _error_bounds(values: np.ndarray, error: Any) -> tuple[np.ndarray, np.ndarray]:
-    """Return lower and upper bounds for symmetric or asymmetric errors."""
-    e = np.asarray(error, dtype=float)
-    lower = e[0] if e.ndim == 2 else e
-    upper = e[1] if e.ndim == 2 else e
-    return values - lower, values + upper
-
-
-def _nan_joined_extents(lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
-    """Join error-bar extents into one NaN-separated coordinate array."""
-    out = np.empty(3 * len(lo))
-    out[0::3], out[1::3], out[2::3] = lo, hi, np.nan
-    return out
+    return ax.plot(*wrap_line(step_x, step_y, wrapx=wx, wrapy=wy), **kwargs)
 
 
 def errorbar_wrapped(
@@ -610,7 +436,8 @@ def errorbar_wrapped(
         Forwarded to ``ax.plot`` for the data line/markers.
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
-        ``False`` disables wrapping for this call.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
 
     Returns
     -------
@@ -625,7 +452,7 @@ def errorbar_wrapped(
     # shows once, with the bar-and-marker handle.
     data_line: Line2D | None = None
     if fmt != "none":
-        drawn = ax.plot(_wrap_points(x, wrapx), _wrap_points(y, wrapy), fmt, **kwargs)
+        drawn = ax.plot(*wrap_points(x, y, wrapx=wrapx, wrapy=wrapy), fmt, **kwargs)
         data_line = drawn[0] if drawn else None
 
     bar_color = (
@@ -638,8 +465,7 @@ def errorbar_wrapped(
     def add_caps(cx: np.ndarray, cy: np.ndarray, marker: str) -> None:
         if capsize:
             (cap,) = ax.plot(
-                _wrap_points(cx, wrapx),
-                _wrap_points(cy, wrapy),
+                *wrap_points(cx, cy, wrapx=wrapx, wrapy=wrapy),
                 linestyle="none",
                 marker=marker,
                 ms=capsize,

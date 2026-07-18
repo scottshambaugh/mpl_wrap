@@ -17,5 +17,9 @@
 * `AxesWrap` class with the helpers as methods, available as the `"wrap"`
   projection, and `wrap_axes` to upgrade an existing axes of any projection in
   place (picklable in both cases)
+* `wrap_line` and `wrap_points` data-processing functions that return the
+  wrapped arrays without plotting, also available as `AxesWrap` methods
+* `wrapx`/`wrapy` accept `True` to require the stored window and `False` to
+  disable wrapping for a single call
 ### Changed
 ### Removed

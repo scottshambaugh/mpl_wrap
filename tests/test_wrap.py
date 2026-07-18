@@ -1,6 +1,8 @@
 import pickle
 from typing import Any
 
+import pytest
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.container import ErrorbarContainer
@@ -17,8 +19,11 @@ from mpl_wrap import (
     set_wrap,
     stairs_wrapped,
     wrap_axes,
+    wrap_line,
+    wrap_points,
 )
-from mpl_wrap.wrap import _to_num, _wrap_polyline, _wrap_xy
+from mpl_wrap.data import _wrap_polyline
+from mpl_wrap.plot import _to_num
 
 WRAP360 = (0.0, 360.0)
 
@@ -110,23 +115,25 @@ def test_polyline_empty_input() -> None:
     assert len(out_x) == 0 and len(out_y) == 0
 
 
-def test_wrap_xy_wraps_x_via_swap() -> None:
-    xs, ys = _wrap_xy(np.array([350.0, 370.0]), np.array([0.0, 1.0]), np.array(WRAP360), None)
+def test_wrap_line_wraps_x_via_swap() -> None:
+    xs, ys = wrap_line([350.0, 370.0], [0.0, 1.0], wrapx=WRAP360)
     assert np.allclose(xs[[0, 1, 3, 4]], [350.0, 360.0, 0.0, 10.0])
     assert np.isnan(xs[2])
     assert np.allclose(ys[[0, 1, 3, 4]], [0.0, 0.5, 0.5, 1.0])
 
 
-def test_wrap_xy_composes_both_axes() -> None:
-    xs, ys = _wrap_xy(
-        np.array([350.0, 370.0]),
-        np.array([350.0, 370.0]),
-        np.array(WRAP360),
-        np.array(WRAP360),
-    )
+def test_wrap_line_composes_both_axes() -> None:
+    xs, ys = wrap_line([350.0, 370.0], [350.0, 370.0], wrapx=WRAP360, wrapy=WRAP360)
     finite = np.isfinite(xs) & np.isfinite(ys)
     assert xs[finite].min() >= 0.0 and xs[finite].max() <= 360.0
     assert ys[finite].min() >= 0.0 and ys[finite].max() <= 360.0
+
+
+def test_wrap_points_folds_pointwise() -> None:
+    xs, ys = wrap_points([0.5, 1.5, 2.5], [10.0, 370.0, np.nan], wrapy=WRAP360)
+    assert np.allclose(xs, [0.5, 1.5, 2.5])  # x untouched without a wrapx window
+    assert np.allclose(ys[:2], [10.0, 10.0])
+    assert np.isnan(ys[2])
 
 
 # plot_wrapped
@@ -339,7 +346,7 @@ def test_set_wrap_stores_window_and_sets_lims() -> None:
     _, ax = plt.subplots()
     assert set_wrap(ax, wrapy=WRAP360) is ax  # returns the axes for chaining
     assert list(ax.lines) == []  # seam lines are opt-in
-    assert ax.get_ylim() == (-18.0, 378.0)  # 5% period margin
+    assert ax.get_ylim() == (0.0, 360.0)  # limits set to the window
 
     (ln,) = plot_wrapped(ax, [0.0, 1.0], [350.0, 370.0])
     assert np.nanmax(_arr(ln.get_ydata())) <= 360.0
@@ -359,6 +366,21 @@ def test_set_wrap_seam_lines() -> None:
     assert len(lines) == 2
     assert sorted(_arr(ln.get_ydata())[0] for ln in lines) == [0.0, 360.0]
     assert all(ln.get_color() == "C3" for ln in lines)
+
+
+def test_wrap_true_requires_stored_window() -> None:
+    _, ax = plt.subplots()
+    with pytest.raises(ValueError, match="wrapy=True"):
+        plot_wrapped(ax, [0.0, 1.0], [350.0, 370.0], wrapy=True)
+    set_wrap(ax, wrapy=WRAP360)
+    (ln,) = plot_wrapped(ax, [0.0, 1.0], [350.0, 370.0], wrapy=True)
+    assert np.nanmax(_arr(ln.get_ydata())) <= 360.0
+
+
+def test_set_wrap_rejects_true() -> None:
+    _, ax = plt.subplots()
+    with pytest.raises(ValueError, match="not valid in set_wrap"):
+        set_wrap(ax, wrapy=True)
 
 
 def test_set_wrap_explicit_kwarg_overrides_stored() -> None:
@@ -486,6 +508,17 @@ def test_axeswrap_methods_delegate() -> None:
     ax.stairs_wrapped(100.0 * x[:-1], x)
     ax.errorbar_wrapped(x[::20], 100.0 * x[::20], yerr=20.0 + x[::20], fmt="o")
     fig.canvas.draw()
+
+
+def test_axeswrap_data_methods_use_stored_window() -> None:
+    _, ax = plt.subplots(subplot_kw={"projection": "wrap"})
+    assert isinstance(ax, AxesWrap)
+    ax.set_wrap(wrapy=WRAP360)
+    xs, ys = ax.wrap_line([0.0, 1.0], [350.0, 370.0])
+    assert np.nanmax(ys) <= 360.0
+    assert np.isnan(ys).sum() == 1
+    px, py = ax.wrap_points([0.5], [370.0])
+    assert np.allclose(px, [0.5]) and np.allclose(py, [10.0])
 
 
 def test_wrap_axes_other_projection_and_idempotent() -> None:

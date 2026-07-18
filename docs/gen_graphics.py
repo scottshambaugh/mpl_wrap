@@ -86,6 +86,8 @@ def wrapy_demo(savedir: Path = SAVEDIR) -> None:
         ax.grid(True, alpha=0.3)
         if index > 0:
             set_wrap(ax, wrapy=wrapy, seam_lines=True)
+            # Pad past the window so the seam lines and edge routing are visible.
+            ax.set_ylim(wrapy[0] - 0.05 * period, wrapy[1] + 0.05 * period)
 
     axs[0].set_title("Unwrapped")
     axs[0].fill_between(x, lower, upper, **band_style)
@@ -178,7 +180,7 @@ def datetime_demo(savedir: Path = SAVEDIR) -> None:
     # Bottom: the same series wrapped onto one day, so the days overlay as a
     # time-of-day view. The shared coloring shows which day is which.
     axs[1].set(title="Wrapped onto one day", ylabel="signal", xlabel="time of day")
-    set_wrap(axs[1], wrapx=(t0, t0 + day), margin=0.0)
+    set_wrap(axs[1], wrapx=(t0, t0 + day))
     (line,) = plot_wrapped(axs[1], times, signal)
     xw = np.asarray(line.get_xdata(), dtype=float)
     yw = np.asarray(line.get_ydata(), dtype=float)
