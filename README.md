@@ -1,5 +1,7 @@
 # mpl_wrap
 
+[![PyPI](https://img.shields.io/pypi/v/mpl_wrap)](https://pypi.org/project/mpl-wrap/)
+[![Python versions](https://img.shields.io/pypi/pyversions/mpl_wrap)](https://pypi.org/project/mpl-wrap/)
 [![Builds](https://github.com/scottshambaugh/mpl_wrap/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/scottshambaugh/mpl_wrap/actions/workflows/builds.yml)
 [![Tests](https://github.com/scottshambaugh/mpl_wrap/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/scottshambaugh/mpl_wrap/actions/workflows/tests.yml)
 
