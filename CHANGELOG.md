@@ -2,9 +2,6 @@
 
 ## Future Work
 ### Features & Maintenance:
-- Port the prototype plotting helpers (`plot_wrapped`, `fill_between_wrapped`,
-  `stairs_wrapped`, `errorbar_wrapped`) into the package
-- Add `scatter_wrapped` and a `set_wrap` axes setup helper
 - Numerical + smoke test suite
 - README documentation with generated example graphics
 - A wrapped `Axes` subclass
@@ -13,5 +10,10 @@
 
 ## [Unreleased]
 ### Added
+* `plot_wrapped`, `scatter_wrapped`, `fill_between_wrapped`, `stairs_wrapped`,
+  and `errorbar_wrapped` helpers for plotting continuous (unwrapped) data on
+  wrapped/periodic axes, with `wrapx`/`wrapy` (min, max) windows and datetime support
+* `set_wrap` helper to store wrap windows on an axes (picked up by the helpers
+  by default), optionally setting axis limits and drawing seam lines
 ### Changed
 ### Removed

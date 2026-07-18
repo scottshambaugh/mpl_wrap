@@ -39,5 +39,3 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
-# Prototype script, absorbed into src/ in a later step
-extend-exclude = ["wrapped_axis_helpers_demo.py"]
