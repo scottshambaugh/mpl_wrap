@@ -62,8 +62,6 @@ def _check_step_where(func: str, name: str, value: str) -> None:
 
 # typing overloads
 @overload
-# typing overloads
-@overload
 def _to_num(axis: Axis, values: None) -> None: ...
 @overload
 def _to_num(axis: Axis, values: Any) -> np.ndarray: ...
@@ -420,17 +418,21 @@ def stairs_wrapped(
     values: Any,
     edges: Any = None,
     *,
+    orientation: str = "vertical",
+    baseline: Any = 0,
+    fill: bool = False,
     wrapx: WrapSpec = None,
     wrapy: WrapSpec = None,
     **kwargs: Any,
-) -> list[Line2D]:
-    """Draw a continuous (unwrapped) step series on a wrapped axis.
+) -> Union[list[Line2D], PathPatch]:
+    """Draw a continuous (unwrapped) staircase on a wrapped axis.
 
     Mirrors ``ax.stairs`` with optional ``wrapx`` and/or ``wrapy`` (min, max)
     windows. The staircase is turned into a tread/riser polyline and wrapped, so
-    seam-crossing risers route to the edges. Rendered with ``ax.plot``, so
-    stairs-only kwargs (``baseline``, ``fill``) do not apply. Datetime data and
-    windows are accepted.
+    seam-crossing risers route to the edges. As in ``ax.stairs``, the default
+    ``baseline=0`` drops both ends down to the baseline (pass ``baseline=None``
+    for the bare staircase). For the ``ax.step`` signature (n x-values against n
+    y-values) use `step_wrapped`. Datetime data and windows are accepted.
 
     Parameters
     ----------
@@ -440,8 +442,17 @@ def stairs_wrapped(
         Step heights (continuous / unwrapped).
     edges : array-like, optional
         Bin edges, one longer than ``values``. Defaults to ``arange(len(values) + 1)``.
+    orientation : {"vertical", "horizontal"}, default "vertical"
+        Whether ``values`` run along y (edges along x) or the reverse.
+    baseline : float, array-like or None, default 0
+        The value the ends drop to, or the lower edge of the fill. None leaves
+        the staircase open, and cannot be combined with ``fill``.
+    fill : bool, default False
+        Fill between the staircase and the baseline instead of drawing a line.
+        The fill is tiled and clipped exactly as in `fill_between_wrapped`.
     **kwargs
-        Forwarded to ``ax.plot`` (``baseline`` and ``fill`` are ignored).
+        Forwarded to ``ax.plot`` (styling, ...), or to the
+        ``matplotlib.patches.PathPatch`` when ``fill=True``.
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
         ``True`` requires the stored window, and ``False`` disables wrapping
@@ -449,21 +460,44 @@ def stairs_wrapped(
 
     Returns
     -------
-    list of matplotlib.lines.Line2D
-        The plotted line artists, as from ``ax.plot``.
+    list of matplotlib.lines.Line2D, or matplotlib.patches.PathPatch if ``fill``
+        The plotted artists. Note that these are the ``ax.plot`` /
+        `fill_between_wrapped` artists, where ``ax.stairs`` returns a single
+        ``StepPatch``.
     """
-    values = _to_num(ax.yaxis, values)
-    if edges is None:
-        edges = np.arange(len(values) + 1, dtype=float)
-    else:
-        edges = _to_num(ax.xaxis, edges)
+    if orientation not in ("vertical", "horizontal"):
+        raise ValueError(
+            f"stairs_wrapped() orientation={orientation!r} is not one of "
+            f"['vertical', 'horizontal']."
+        )
+    # Vertical puts values on y and edges on x; horizontal swaps the two axes.
+    vertical = orientation == "vertical"
+    value_axis, edge_axis = (ax.yaxis, ax.xaxis) if vertical else (ax.xaxis, ax.yaxis)
+    values = _to_num(value_axis, values)
+    edges = np.arange(len(values) + 1, dtype=float) if edges is None else _to_num(edge_axis, edges)
+    base: np.ndarray | None = None if baseline is None else _to_num(value_axis, baseline)
     wx = _resolve_wrap(ax, "x", wrapx)
     wy = _resolve_wrap(ax, "y", wrapy)
-    kwargs.pop("baseline", None)
-    kwargs.pop("fill", None)
+    # Build in "vertical" space (edges along x), then swap back if horizontal.
+    w_edge, w_value = (wx, wy) if vertical else (wy, wx)
 
-    step_x, step_y = _stairs_polyline(values, edges)
-    return ax.plot(*wrap_line(step_x, step_y, wrapx=wx, wrapy=wy), **kwargs)
+    if not fill:
+        step_e, step_v = _stairs_polyline(values, edges, base)
+        line_x, line_y = (step_e, step_v) if vertical else (step_v, step_e)
+        return ax.plot(*wrap_line(line_x, line_y, wrapx=wx, wrapy=wy), **kwargs)
+
+    # Filled: a band between the staircase and the (scalar or stepped) baseline.
+    if base is None:
+        raise ValueError(
+            "stairs_wrapped() cannot fill with baseline=None: pass a baseline "
+            "value or array to fill against."
+        )
+    band_e, band_v = _stairs_polyline(values, edges)
+    band_base = base if base.ndim == 0 else np.repeat(base, 2)
+    verts, codes = _band_vertices(band_e, band_v, band_base, wrapx=w_edge, wrapy=w_value)
+    if not vertical:
+        verts = verts[:, ::-1]
+    return _add_band_patch(ax, verts, codes, wx, wy, kwargs)
 
 
 def errorbar_wrapped(

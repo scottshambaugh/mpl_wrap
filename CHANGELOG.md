@@ -13,7 +13,12 @@
   `where` policy), also available as an `AxesWrap` method
 * `fill_between_wrapped` now supports `ax.fill_between`'s `where`,
   `interpolate`, and `step` arguments, and defaults `y2` to 0
+* `stairs_wrapped` now supports `ax.stairs`' `orientation`, `baseline`, and
+  `fill` arguments (previously `baseline` and `fill` were silently dropped)
 ### Changed
+* `stairs_wrapped` defaults to `baseline=0` as `ax.stairs` does, so both ends of
+  the staircase now drop to the baseline. Pass `baseline=None` for the previous
+  bare-staircase behavior.
 * `fill_between_wrapped` breaks the band at non-finite samples instead of
   raising, so gappy series fill run-by-run
 ### Removed

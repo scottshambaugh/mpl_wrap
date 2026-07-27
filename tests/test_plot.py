@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from matplotlib.container import ErrorbarContainer
+from matplotlib.lines import Line2D
+from matplotlib.patches import PathPatch
 from matplotlib.path import Path
 
 import mpl_wrap
@@ -24,6 +26,12 @@ WRAP360 = (0.0, 360.0)
 def _arr(values: Any) -> np.ndarray:
     """Coerce loosely-typed artist data (get_xydata, path attributes) for numpy ops."""
     return np.asarray(values, dtype=float)
+
+
+def _lines(artists: Any) -> list[Line2D]:
+    """Narrow a helper's return to its lines (stairs_wrapped can also return a patch)."""
+    assert isinstance(artists, list)
+    return artists
 
 
 def test_version() -> None:
@@ -237,7 +245,9 @@ def test_step_wrapped_matches_mpl_and_wraps() -> None:
 
 def test_stairs_wrapped_routes_riser_at_seam() -> None:
     _, ax = plt.subplots()
-    (ln,) = stairs_wrapped(ax, [350.0, 370.0], [0.0, 1.0, 2.0], wrapy=WRAP360)
+    (ln,) = _lines(
+        stairs_wrapped(ax, [350.0, 370.0], [0.0, 1.0, 2.0], baseline=None, wrapy=WRAP360)
+    )
     xdata, ydata = _arr(ln.get_xdata()), _arr(ln.get_ydata())
     assert np.nanmin(ydata) >= 0.0 and np.nanmax(ydata) <= 360.0
     assert np.isnan(ydata).sum() == 1
@@ -248,8 +258,68 @@ def test_stairs_wrapped_routes_riser_at_seam() -> None:
 
 def test_stairs_wrapped_default_edges() -> None:
     _, ax = plt.subplots()
-    (ln,) = stairs_wrapped(ax, [10.0, 20.0, 30.0], wrapy=WRAP360)
+    (ln,) = _lines(stairs_wrapped(ax, [10.0, 20.0, 30.0], wrapy=WRAP360))
     assert _arr(ln.get_xdata()).max() == 3.0
+
+
+def test_stairs_wrapped_baselines() -> None:
+    _, ax = plt.subplots()
+    values, edges = [10.0, 20.0], [0.0, 1.0, 2.0]
+    # As in ax.stairs, the default baseline=0 drops both ends down to it
+    (drops,) = _lines(stairs_wrapped(ax, values, edges))
+    assert _arr(drops.get_ydata())[[0, -1]].tolist() == [0.0, 0.0]
+    (bare,) = _lines(stairs_wrapped(ax, values, edges, baseline=None))
+    assert _arr(bare.get_ydata())[[0, -1]].tolist() == [10.0, 20.0]
+    # An array baseline closes the outline back along its own staircase
+    (closed,) = _lines(stairs_wrapped(ax, values, edges, baseline=[1.0, 2.0]))
+    xy = np.column_stack([_arr(closed.get_xdata()), _arr(closed.get_ydata())])
+    assert np.allclose(xy[0], xy[-1])
+    # A baseline drop that crosses the seam is routed to the edges like any riser
+    (wrapped,) = _lines(stairs_wrapped(ax, [350.0], [0.0, 1.0], baseline=-20.0, wrapy=WRAP360))
+    ydata = _arr(wrapped.get_ydata())
+    assert np.nanmin(ydata) >= 0.0 and np.nanmax(ydata) <= 360.0
+    assert np.isnan(ydata).sum() == 2  # one break per end drop
+
+
+def test_stairs_wrapped_horizontal_swaps_axes() -> None:
+    _, ax = plt.subplots()
+    (ln,) = _lines(
+        stairs_wrapped(ax, [350.0, 370.0], [0.0, 1.0, 2.0], orientation="horizontal", wrapx=WRAP360)
+    )
+    xdata, ydata = _arr(ln.get_xdata()), _arr(ln.get_ydata())
+    assert np.nanmin(xdata) >= 0.0 and np.nanmax(xdata) <= 360.0  # values wrap on x now
+    assert np.nanmax(ydata) == 2.0  # edges run along y
+
+
+def test_stairs_wrapped_fill_tiles_like_fill_between() -> None:
+    _, ax = plt.subplots()
+    values, edges = [10.0, 20.0], [0.0, 1.0, 2.0]
+    patch = stairs_wrapped(ax, values, edges, fill=True, wrapy=WRAP360, alpha=0.3)
+    assert isinstance(patch, PathPatch)
+    assert patch in ax.patches
+    verts = _arr(patch.get_path().vertices)
+    assert verts[:, 1].min() < 0.0 and verts[:, 1].max() > 360.0  # tiled past the window
+    assert patch.clipbox is not None  # clipped back to the window
+    assert not patch.get_in_layout()
+    # A horizontal fill tiles along x instead
+    horiz = stairs_wrapped(ax, values, edges, orientation="horizontal", fill=True, wrapx=WRAP360)
+    assert isinstance(horiz, PathPatch)
+    hverts = _arr(horiz.get_path().vertices)
+    assert hverts[:, 0].min() < 0.0 and hverts[:, 0].max() > 360.0
+
+
+def test_wrapped_helpers_reject_bad_arguments() -> None:
+    _, ax = plt.subplots()
+    with pytest.raises(ValueError, match=r"step_wrapped\(\) where='bogus'"):
+        step_wrapped(ax, [0.0, 1.0], [0.0, 1.0], where="bogus")
+    with pytest.raises(ValueError, match=r"fill_between_wrapped\(\) step='bogus'"):
+        fill_between_wrapped(ax, [0.0, 1.0], [0.0, 0.0], [1.0, 1.0], step="bogus")
+    with pytest.raises(ValueError, match="where size"):
+        fill_between_wrapped(ax, [0.0, 1.0], [0.0, 0.0], [1.0, 1.0], where=[True])
+    with pytest.raises(ValueError, match="cannot fill with baseline=None"):
+        stairs_wrapped(ax, [10.0], [0.0, 1.0], baseline=None, fill=True)
+    with pytest.raises(ValueError, match="orientation='sideways'"):
+        stairs_wrapped(ax, [10.0], [0.0, 1.0], orientation="sideways")
 
 
 # errorbar_wrapped
@@ -436,6 +506,7 @@ def test_smoke_render_all_helpers() -> None:
     fill_between_wrapped(ax, x, 90.0 * x, 110.0 * x, alpha=0.3, label="band")
     step_wrapped(ax, x, 100.0 * x, where="post")
     stairs_wrapped(ax, 100.0 * x[:-1], x)
+    stairs_wrapped(ax, 100.0 * x[:-1], x, fill=True, alpha=0.3)
     errorbar_wrapped(ax, x[::20], 100.0 * x[::20], yerr=20.0 + x[::20], fmt="o", capsize=2)
     ax.legend(loc="upper left")
     fig.canvas.draw()

@@ -7,7 +7,7 @@ with `wrap_axes`. The inherited plotting methods are untouched, so wrapped and
 unwrapped artists mix freely on one axes.
 """
 
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 from matplotlib.axes import Axes
@@ -60,7 +60,7 @@ class AxesWrapBase(Axes):
         """Step plot wrapped into the window. See `mpl_wrap.step_wrapped`."""
         return _plot.step_wrapped(self, *args, **kwargs)
 
-    def stairs_wrapped(self, *args: Any, **kwargs: Any) -> list[Line2D]:
+    def stairs_wrapped(self, *args: Any, **kwargs: Any) -> Union[list[Line2D], PathPatch]:
         """Staircase wrapped into the window. See `mpl_wrap.stairs_wrapped`."""
         return _plot.stairs_wrapped(self, *args, **kwargs)
 

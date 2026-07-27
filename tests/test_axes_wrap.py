@@ -42,6 +42,7 @@ def test_axeswrap_methods_delegate() -> None:
     ax.fill_between_wrapped(x, 90.0 * x, 110.0 * x, alpha=0.3)
     ax.step_wrapped(x, 100.0 * x, where="mid")
     ax.stairs_wrapped(100.0 * x[:-1], x)
+    ax.stairs_wrapped(100.0 * x[:-1], x, fill=True, alpha=0.3)
     ax.errorbar_wrapped(x[::20], 100.0 * x[::20], yerr=20.0 + x[::20], fmt="o")
     fig.canvas.draw()
 
