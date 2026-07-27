@@ -14,11 +14,9 @@ from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
 
 from mpl_wrap import (
-    errorbar_wrapped,
     fill_between_wrapped,
     plot_wrapped,
     set_wrap,
-    stairs_wrapped,
 )
 
 SAVEDIR = Path(__file__).parent
@@ -57,28 +55,15 @@ def wrapy_demo(savedir: Path = SAVEDIR) -> None:
     # An angle that winds up, reverses at t = 25, and unwinds, with a band growing
     # past a full period, and a data gap over t = 40..60 spanning several periods.
     reverse = 25.0
-    x = np.concatenate([np.linspace(0.0, 40.0, 400), np.linspace(60.0, 70.0, 100)])
+    x = np.concatenate([np.linspace(0.0, 40.0, 40), np.linspace(60.0, 70.0, 10)])
     center = 40.0 * np.where(x <= reverse, x, 2.0 * reverse - x)  # unwrapped angle, deg
-    half_width = 2.5 + 6.0 * x
+    half_width = 2.5 + 4.0 * x
     lower = center - half_width
     upper = center + half_width
 
-    # A coarse step series over the same span. The gap is one wide bridging bin.
-    edges = np.concatenate([np.linspace(0.0, 40.0, 21), np.linspace(60.0, 70.0, 6)])
-    centers = 0.5 * (edges[:-1] + edges[1:])
-    values = 40.0 * np.where(centers <= reverse, centers, 2.0 * reverse - centers)
-
-    # Discrete measurements with growing error bars, excluding the gap bin.
-    measured = np.diff(edges) < 10.0
-    err_x = centers[measured]
-    err_y = values[measured]
-    err_yerr = (1.25 + 3.0 * centers)[measured]
-
     # Shared styles, so the panels differ only in how the data is projected.
     band_style: dict[str, Any] = {"color": "C0", "alpha": 0.4, "label": "fill_between"}
-    line_style: dict[str, Any] = {"color": "C0", "label": "plot"}
-    stairs_style: dict[str, Any] = {"color": "C1", "label": "stairs"}
-    err_style: dict[str, Any] = {"fmt": "o", "ms": 3, "color": "C2", "label": "errorbar"}
+    line_style: dict[str, Any] = {"color": "C0", "label": "plot", "marker": "*"}
 
     fig, axs = plt.subplots(3, 1, figsize=(9, 10), sharex=True)
     for index, ax in enumerate(axs):
@@ -92,35 +77,35 @@ def wrapy_demo(savedir: Path = SAVEDIR) -> None:
     axs[0].set_title("Unwrapped")
     axs[0].fill_between(x, lower, upper, **band_style)
     axs[0].plot(x, center, **line_style)
-    axs[0].stairs(values, edges, baseline=None, **stairs_style)
-    axs[0].errorbar(err_x, err_y, err_yerr, **err_style)
 
-    axs[1].set_title("mpl_wrap")
-    fill_between_wrapped(axs[1], x, lower, upper, **band_style)
-    plot_wrapped(axs[1], x, center, **line_style)
-    stairs_wrapped(axs[1], values, edges, **stairs_style)
-    errorbar_wrapped(axs[1], err_x, err_y, err_yerr, **err_style)
+    axs[1].set_title("Modulus (y % 360)")
+    axs[1].fill_between(x, lower % period, upper % period, **band_style)
+    axs[1].plot(x, center % period, **line_style)
 
-    axs[2].set_title("Modulus (y % 360)")
-    axs[2].fill_between(x, lower % period, upper % period, **band_style)
-    axs[2].plot(x, center % period, **line_style)
-    axs[2].stairs(values % period, edges, baseline=None, **stairs_style)
-    axs[2].errorbar(err_x, err_y % period, err_yerr, **err_style)
+    axs[2].set_title("mpl_wrap")
+    fill_between_wrapped(axs[2], x, lower, upper, **band_style)
+    plot_wrapped(axs[2], x, center, **line_style)
 
     axs[0].legend(loc="upper left")
     _save_demo(fig, savedir, "wrapy_demo.png")
 
 
 def circle_demo(savedir: Path = SAVEDIR) -> None:
-    """Plot a radius-1.2 circle on a 2x2 grid of x/y wrapping combinations."""
+    """Plot a radius-1.2 disk on a 2x2 grid of x/y wrapping combinations.
+
+    The disk's bottom-right quadrant is squared off to a corner, so the shape is
+    symmetric across neither axis and each panel wraps it differently.
+    """
     window = (-1, 1)
     radius = 1.2
-    theta = np.linspace(0.0, 2.0 * np.pi, 400)
-    x = radius * np.cos(theta)
-    y = radius * np.sin(theta)
-    # The disk as a fill between the lower and upper semicircles.
+    # Outline: three quadrants of the circle, closed by the squared-off corner.
+    theta = np.linspace(0.0, 1.5 * np.pi, 300)
+    x = np.concatenate([radius * np.cos(theta), [radius, radius]])
+    y = np.concatenate([radius * np.sin(theta), [-radius, 0.0]])
+    # The disk as a fill between the lower and upper boundaries.
     x_fill = np.linspace(-radius, radius, 400)
     semi = np.sqrt(radius**2 - x_fill**2)
+    lower = np.where(x_fill >= 0.0, -radius, -semi)
     pad = 1.35
 
     fig, axs = plt.subplots(2, 2, figsize=(9, 9))
@@ -132,7 +117,7 @@ def circle_demo(savedir: Path = SAVEDIR) -> None:
             ax.grid(True, alpha=0.3)
             ax.set_title(f"wrapx={wrapx}, wrapy={wrapy}")
             set_wrap(ax, wrapx=wrapx, wrapy=wrapy, set_lims=False, seam_lines=True)
-            fill_between_wrapped(ax, x_fill, -semi, semi, color="C0", alpha=0.25)
+            fill_between_wrapped(ax, x_fill, lower, semi, color="C0", alpha=0.25)
             plot_wrapped(ax, x, y, color="C0")
             ax.set(xlim=(-pad, pad), ylim=(-pad, pad))
 
