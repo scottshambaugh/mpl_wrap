@@ -160,6 +160,48 @@ def test_fill_between_empty_data() -> None:
     assert len(_arr(patch.get_path().vertices)) == 0
 
 
+def test_fill_between_where_and_interpolate_match_mpl() -> None:
+    """Each run is built exactly as ax.fill_between builds its polygons."""
+    _, ax = plt.subplots()
+    x = np.linspace(0.0, 10.0, 21)
+    y1, y2 = np.sin(x), np.cos(x)
+    cases: tuple[tuple[Any, bool, Any], ...] = (
+        (None, False, None),
+        (y1 > y2, False, None),
+        (y1 > y2, True, None),
+        (None, False, "post"),
+        (y1 > y2, True, "mid"),
+    )
+    for where, interpolate, step in cases:
+        ref = ax.fill_between(x, y1, y2, where=where, interpolate=interpolate, step=step)
+        patch = fill_between_wrapped(ax, x, y1, y2, where=where, interpolate=interpolate, step=step)
+        ref_polys = [_arr(p.vertices) for p in ref.get_paths()]
+        assert _moveto_count(patch.get_path().codes) == len(ref_polys)
+        # Same point set per run (the band is traced in a different vertex order)
+        got = _arr(patch.get_path().vertices)
+        assert np.allclose(
+            np.unique(np.round(got, 9), axis=0),
+            np.unique(np.round(np.concatenate(ref_polys), 9), axis=0),
+        )
+
+
+def test_fill_between_runs_break_at_where_and_nonfinite() -> None:
+    _, ax = plt.subplots()
+    x = np.arange(6.0)
+    hi = np.array([0.0, 400.0, 0.0, 0.0, 400.0, 0.0])
+    # A False sample and a non-finite sample both end the run they fall in
+    for lo, where in (
+        (np.zeros(6), np.array([True, True, False, True, True, True])),
+        (np.array([0.0, 0.0, np.nan, 0.0, 0.0, 0.0]), None),
+    ):
+        patch = fill_between_wrapped(ax, x, lo, hi, where=where, wrapy=WRAP360)
+        verts = _arr(patch.get_path().vertices)
+        assert np.isfinite(verts).all()
+        assert verts[:, 0].min() == 0.0 and verts[:, 0].max() == 5.0
+        assert _moveto_count(patch.get_path().codes) > 2  # a saturated run each side
+        assert not np.any((verts[:, 0] > 1.0) & (verts[:, 0] < 3.0))  # the gap at x=2
+
+
 def test_fill_between_no_window_single_tile() -> None:
     _, ax = plt.subplots()
     x = np.linspace(0.0, 1.0, 5)

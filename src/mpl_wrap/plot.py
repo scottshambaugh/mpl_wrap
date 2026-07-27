@@ -21,12 +21,11 @@ from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path
 
 from mpl_wrap.data import (
+    _band_vertices,
     _error_bounds,
     _nan_joined_extents,
-    _saturated_band_vertices,
     _stairs_polyline,
     _step_polyline,
-    _tiled_band_vertices,
     _wrap_to_segments,
     wrap_line,
     wrap_points,
@@ -284,11 +283,34 @@ def _clip_patch_to_window(
     patch.set_clip_path(rect)
 
 
+def _add_band_patch(
+    ax: Axes,
+    verts: np.ndarray,
+    codes: np.ndarray,
+    wrapx: np.ndarray | None,
+    wrapy: np.ndarray | None,
+    kwargs: dict[str, Any],
+) -> PathPatch:
+    """Add a tiled band path to the axes as a clipped patch."""
+    kwargs.setdefault("linewidth", 0)
+    patch = PathPatch(Path(verts, codes), **kwargs)
+    patch.set_transform(ax.transData)
+    # Clipped to the window, so keep its huge path out of datalim (add_artist) and
+    # layout (set_in_layout) - both would otherwise walk every tiled vertex.
+    ax.add_artist(patch)
+    _clip_patch_to_window(ax, patch, wrapx, wrapy)
+    patch.set_in_layout(False)
+    return patch
+
+
 def fill_between_wrapped(
     ax: Axes,
     x: Any,
     y1: Any,
-    y2: Any,
+    y2: Any = 0,
+    where: Any = None,
+    interpolate: bool = False,
+    step: str | None = None,
     *,
     wrapx: WrapSpec = None,
     wrapy: WrapSpec = None,
@@ -309,8 +331,18 @@ def fill_between_wrapped(
         The axes to plot on.
     x : array-like
         Continuous (unwrapped) x coordinates.
-    y1, y2 : array-like
-        The band edges (continuous / unwrapped), in either order.
+    y1, y2 : array-like or float
+        The band edges (continuous / unwrapped), in either order. ``y2``
+        defaults to 0.
+    where : array-like of bool, optional
+        Fill only where True, as in ``ax.fill_between``. The band is drawn once
+        per contiguous run; non-finite samples break runs too.
+    interpolate : bool, default False
+        Extend each run to the interpolated point where ``y1`` and ``y2``
+        actually cross, as in ``ax.fill_between``.
+    step : {"pre", "post", "mid"}, optional
+        Step the band's edges before wrapping, as in ``ax.fill_between``. None
+        (the default) interpolates linearly between samples.
     **kwargs
         Forwarded to the ``matplotlib.patches.PathPatch`` (color, alpha, ...).
         ``linewidth`` defaults to 0.
@@ -322,39 +354,21 @@ def fill_between_wrapped(
     Returns
     -------
     matplotlib.patches.PathPatch
-        The band artist, added to the axes (excluded from data limits and layout).
+        The band artist, added to the axes (excluded from data limits and
+        layout). Note that this is a ``PathPatch`` in ``ax.patches``, where
+        ``ax.fill_between`` returns a collection in ``ax.collections``.
     """
+    if step is not None:
+        _check_step_where("fill_between_wrapped", "step", step)
     x = _to_num(ax.xaxis, x)
     y1 = _to_num(ax.yaxis, y1)
     y2 = _to_num(ax.yaxis, y2)
-    wrapx = _resolve_wrap(ax, "x", wrapx)
-    wrapy = _resolve_wrap(ax, "y", wrapy)
-    lo = np.minimum(y1, y2)
-    hi = np.maximum(y1, y2)
-
-    # Clamp bands to one y-period and record where they saturate (fill the window).
-    if wrapy is not None:
-        period = wrapy[1] - wrapy[0]
-        full = (hi - lo) >= period
-        hi = lo + np.minimum(hi - lo, period)
-    else:
-        full = np.zeros(len(x), dtype=bool)
-
-    # y-only wrap: saturated x-runs collapse to one rectangle each, else tile in x/y.
-    if wrapx is None and wrapy is not None:
-        verts, codes = _saturated_band_vertices(x, lo, hi, full, wrapy)
-    else:
-        verts, codes = _tiled_band_vertices(x, lo, hi, wrapx, wrapy)
-
-    kwargs.setdefault("linewidth", 0)
-    patch = PathPatch(Path(verts, codes), **kwargs)
-    patch.set_transform(ax.transData)
-    # Clipped to the window, so keep its huge path out of datalim (add_artist) and
-    # layout (set_in_layout) - both would otherwise walk every tiled vertex.
-    ax.add_artist(patch)
-    _clip_patch_to_window(ax, patch, wrapx, wrapy)
-    patch.set_in_layout(False)
-    return patch
+    wx = _resolve_wrap(ax, "x", wrapx)
+    wy = _resolve_wrap(ax, "y", wrapy)
+    verts, codes = _band_vertices(
+        x, y1, y2, where=where, interpolate=interpolate, step=step, wrapx=wx, wrapy=wy
+    )
+    return _add_band_patch(ax, verts, codes, wx, wy, kwargs)
 
 
 def step_wrapped(

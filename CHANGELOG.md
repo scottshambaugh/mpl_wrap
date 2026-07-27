@@ -11,7 +11,11 @@
   in downstream projects
 * `step_wrapped`, mirroring `ax.step` (n x-values against n y-values plus a
   `where` policy), also available as an `AxesWrap` method
+* `fill_between_wrapped` now supports `ax.fill_between`'s `where`,
+  `interpolate`, and `step` arguments, and defaults `y2` to 0
 ### Changed
+* `fill_between_wrapped` breaks the band at non-finite samples instead of
+  raising, so gappy series fill run-by-run
 ### Removed
 
 ## [0.1.0] - 2026-07-18

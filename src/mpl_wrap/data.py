@@ -291,6 +291,94 @@ def _saturated_band_vertices(
     return np.concatenate(verts), np.concatenate(codes)
 
 
+def _interp_crossing(
+    x: np.ndarray, y1: np.ndarray, y2: np.ndarray, idx: int
+) -> tuple[float, float]:
+    """Interpolate where the two curves cross, as ``fill_between(interpolate=True)`` does.
+
+    Solves ``y1 - y2 == 0`` on the segment ending at ``idx`` and evaluates y
+    there, clamping to the segment ends when the curves do not actually cross.
+    """
+    sl = slice(max(idx - 1, 0), idx + 1)
+    xs, diff = x[sl], y1[sl] - y2[sl]
+    order = np.argsort(diff)
+    xc = float(np.interp(0.0, diff[order], xs[order]))
+    order = np.argsort(xs)
+    return xc, float(np.interp(xc, xs[order], y1[sl][order]))
+
+
+def _run_band_vertices(
+    x: np.ndarray,
+    lo: np.ndarray,
+    hi: np.ndarray,
+    wrapx: np.ndarray | None,
+    wrapy: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the wrapped path for one contiguous band run."""
+    # Clamp bands to one y-period and record where they saturate (fill the window).
+    if wrapy is not None:
+        period = wrapy[1] - wrapy[0]
+        full = (hi - lo) >= period
+        hi = lo + np.minimum(hi - lo, period)
+    else:
+        full = np.zeros(len(x), dtype=bool)
+
+    # y-only wrap: saturated x-runs collapse to one rectangle each, else tile in x/y.
+    if wrapx is None and wrapy is not None:
+        return _saturated_band_vertices(x, lo, hi, full, wrapy)
+    return _tiled_band_vertices(x, lo, hi, wrapx, wrapy)
+
+
+def _band_vertices(
+    x: np.ndarray,
+    y1: np.ndarray,
+    y2: np.ndarray,
+    *,
+    where: Any = None,
+    interpolate: bool = False,
+    step: str | None = None,
+    wrapx: np.ndarray | None = None,
+    wrapy: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the wrapped fill-band path, with ``ax.fill_between``'s run semantics.
+
+    The band is drawn once per contiguous run of ``where`` (non-finite samples
+    break runs, as gappy series are the norm for wrapped data), each run stepped
+    and interpolated as requested before being tiled over its period offsets.
+    """
+    x, y1, y2 = np.broadcast_arrays(np.atleast_1d(x), np.atleast_1d(y1), np.atleast_1d(y2))
+    mask = np.isfinite(x) & np.isfinite(y1) & np.isfinite(y2)
+    if where is not None:
+        where = np.asarray(where, dtype=bool)
+        if where.size != x.size:
+            raise ValueError(f"where size ({where.size}) does not match x size ({x.size})")
+        mask &= where
+
+    n = len(x)
+    verts: list[np.ndarray] = []
+    codes: list[np.ndarray] = []
+    for run in _contiguous_runs(np.nonzero(mask)[0]):
+        idx0, idx1 = int(run[0]), int(run[-1]) + 1
+        xr, f1, f2 = x[idx0:idx1], y1[idx0:idx1], y2[idx0:idx1]
+        if step is not None:
+            xr, f1, f2 = _step_polyline(xr, f1, f2, where=step)
+        lo, hi = np.minimum(f1, f2), np.maximum(f1, f2)
+        # Extend the run to the true crossing points, pinching the band shut there.
+        # Only inside the data: at the array ends there is no segment to cross on.
+        if interpolate and idx0 > 0:
+            xc, yc = _interp_crossing(x, y1, y2, idx0)
+            xr, lo, hi = (np.concatenate([[v], a]) for v, a in ((xc, xr), (yc, lo), (yc, hi)))
+        if interpolate and idx1 < n:
+            xc, yc = _interp_crossing(x, y1, y2, idx1)
+            xr, lo, hi = (np.concatenate([a, [v]]) for v, a in ((xc, xr), (yc, lo), (yc, hi)))
+        v, c = _run_band_vertices(xr, lo, hi, wrapx, wrapy)
+        verts.append(v)
+        codes.append(c)
+    if not verts:
+        return np.empty((0, 2)), np.empty(0, dtype=np.uint8)
+    return np.concatenate(verts), np.concatenate(codes)
+
+
 def _error_bounds(values: np.ndarray, error: Any) -> tuple[np.ndarray, np.ndarray]:
     """Return lower and upper bounds for symmetric or asymmetric errors."""
     e = np.asarray(error, dtype=float)
