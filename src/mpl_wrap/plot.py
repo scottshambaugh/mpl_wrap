@@ -24,6 +24,8 @@ from mpl_wrap.data import (
     _error_bounds,
     _nan_joined_extents,
     _saturated_band_vertices,
+    _stairs_polyline,
+    _step_polyline,
     _tiled_band_vertices,
     _wrap_to_segments,
     wrap_line,
@@ -35,6 +37,7 @@ __all__ = [
     "plot_wrapped",
     "scatter_wrapped",
     "fill_between_wrapped",
+    "step_wrapped",
     "stairs_wrapped",
     "errorbar_wrapped",
 ]
@@ -48,7 +51,18 @@ WrapSpec = Union[Iterable[Any], bool, None]
 
 _WINDOW_ATTR = "_mpl_wrap_windows"
 
+# Valid step placements, as in ax.step(where=...) and ax.fill_between(step=...).
+_STEP_WHERE = ("pre", "post", "mid")
 
+
+def _check_step_where(func: str, name: str, value: str) -> None:
+    """Validate a step placement, naming the mpl_wrap function and its argument."""
+    if value not in _STEP_WHERE:
+        raise ValueError(f"{func}() {name}={value!r} is not one of {list(_STEP_WHERE)}.")
+
+
+# typing overloads
+@overload
 # typing overloads
 @overload
 def _to_num(axis: Axis, values: None) -> None: ...
@@ -343,6 +357,50 @@ def fill_between_wrapped(
     return patch
 
 
+def step_wrapped(
+    ax: Axes,
+    x: Any,
+    y: Any,
+    *args: Any,
+    where: str = "pre",
+    wrapx: WrapSpec = None,
+    wrapy: WrapSpec = None,
+    **kwargs: Any,
+) -> list[Line2D]:
+    """Draw a continuous (unwrapped) step series on a wrapped axis.
+
+    Mirrors ``ax.step`` - n x-values, n y-values, and a ``where`` policy - with
+    optional ``wrapx`` and/or ``wrapy`` (min, max) windows. The steps are built
+    as a tread/riser polyline and wrapped, so seam-crossing risers route to the
+    window edges. Rendered with ``ax.plot`` on the expanded polyline rather than
+    via ``drawstyle``. Datetime data and windows are accepted.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    x, y : array-like
+        Continuous (unwrapped) data coordinates, of equal length.
+    where : {"pre", "post", "mid"}, default "pre"
+        Where the risers fall relative to the x positions, as in ``ax.step``.
+    *args, **kwargs
+        Forwarded to ``ax.plot`` (format string, styling, ...).
+    wrapx, wrapy : (min, max) or False, optional
+        Wrap window per axis, defaulting to the window stored by `set_wrap`.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
+
+    Returns
+    -------
+    list of matplotlib.lines.Line2D
+        The plotted line artists, as from ``ax.step``.
+    """
+    _check_step_where("step_wrapped", "where", where)
+    x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
+    step_x, step_y = _step_polyline(x, y, where=where)
+    return ax.plot(*wrap_line(step_x, step_y, wrapx=wx, wrapy=wy), *args, **kwargs)
+
+
 def stairs_wrapped(
     ax: Axes,
     values: Any,
@@ -390,8 +448,7 @@ def stairs_wrapped(
     kwargs.pop("baseline", None)
     kwargs.pop("fill", None)
 
-    step_x = np.repeat(edges, 2)[1:-1]
-    step_y = np.repeat(values, 2)
+    step_x, step_y = _stairs_polyline(values, edges)
     return ax.plot(*wrap_line(step_x, step_y, wrapx=wx, wrapy=wy), **kwargs)
 
 

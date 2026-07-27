@@ -14,6 +14,7 @@ from mpl_wrap import (
     scatter_wrapped,
     set_wrap,
     stairs_wrapped,
+    step_wrapped,
 )
 from mpl_wrap.plot import _to_num
 
@@ -35,6 +36,7 @@ def test_public_api() -> None:
         "plot_wrapped",
         "scatter_wrapped",
         "fill_between_wrapped",
+        "step_wrapped",
         "stairs_wrapped",
         "errorbar_wrapped",
     ):
@@ -165,6 +167,27 @@ def test_fill_between_no_window_single_tile() -> None:
     path = patch.get_path()
     assert _moveto_count(path.codes) == 1
     assert len(_arr(path.vertices)) == 2 * len(x)
+
+
+# step_wrapped
+
+
+def test_step_wrapped_matches_mpl_and_wraps() -> None:
+    _, ax = plt.subplots()
+    x = np.array([0.0, 1.0, 2.0, 4.0])
+    y = np.array([340.0, 380.0, 20.0, 30.0])
+    for where in ("pre", "post", "mid"):
+        # Unwrapped, the polyline is the one ax.step draws with drawstyle="steps-*"
+        (ln,) = step_wrapped(ax, x, y, where=where)
+        (ref,) = ax.step(x, y, where=where)
+        assert np.allclose(_arr(ln.get_xydata()), _arr(ref.get_path().vertices))
+        # Wrapped, risers crossing the seam are routed to the window edges
+        (wrapped,) = step_wrapped(ax, x, y, where=where, wrapy=WRAP360)
+        ydata = _arr(wrapped.get_ydata())
+        assert np.nanmin(ydata) >= 0.0 and np.nanmax(ydata) <= 360.0
+        assert np.isnan(ydata).sum() == 2  # up through 360, then back down
+    (styled,) = step_wrapped(ax, x, y, "r--", wrapy=WRAP360, label="a")
+    assert styled.get_color() == "r" and styled.get_label() == "a"
 
 
 # stairs_wrapped
@@ -369,6 +392,7 @@ def test_smoke_render_all_helpers() -> None:
     plot_wrapped(ax, x, 100.0 * x, label="line")
     scatter_wrapped(ax, x[::10], 100.0 * x[::10], label="points")
     fill_between_wrapped(ax, x, 90.0 * x, 110.0 * x, alpha=0.3, label="band")
+    step_wrapped(ax, x, 100.0 * x, where="post")
     stairs_wrapped(ax, 100.0 * x[:-1], x)
     errorbar_wrapped(ax, x[::20], 100.0 * x[::20], yerr=20.0 + x[::20], fmt="o", capsize=2)
     ax.legend(loc="upper left")

@@ -150,6 +150,46 @@ def wrap_points(
     return _wrap_points(x, wx), _wrap_points(y, wy)
 
 
+def _step_polyline(x: np.ndarray, *ys: np.ndarray, where: str) -> tuple[np.ndarray, ...]:
+    """Expand a step series into the tread/riser polyline that ``ax.step`` draws.
+
+    ``where`` places the risers as matplotlib does: "pre" holds each value over
+    ``(x[i-1], x[i]]``, "post" over ``[x[i], x[i+1])``, and "mid" steps half-way
+    between x positions. Several y arrays can be stepped against one x, as in
+    ``ax.fill_between(..., step=...)``.
+    """
+    if where == "pre":
+        return (np.repeat(x, 2)[:-1], *(np.repeat(y, 2)[1:] for y in ys))
+    if where == "post":
+        return (np.repeat(x, 2)[1:], *(np.repeat(y, 2)[:-1] for y in ys))
+    if where == "mid":
+        mids = 0.5 * (x[:-1] + x[1:])
+        return (np.concatenate([x[:1], np.repeat(mids, 2), x[-1:]]), *(np.repeat(y, 2) for y in ys))
+    raise ValueError(f"must be one of ['pre', 'post', 'mid'], not {where!r}")
+
+
+def _stairs_polyline(
+    values: np.ndarray, edges: np.ndarray, baseline: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Expand bin values and edges into the tread/riser polyline that ``ax.stairs`` draws.
+
+    As in ``ax.stairs``, a scalar ``baseline`` drops the two ends down to it, an
+    array ``baseline`` closes the path back along its own staircase, and None
+    leaves the staircase open.
+    """
+    x = np.repeat(edges, 2)
+    y = np.repeat(values, 2)
+    if baseline is None:
+        return x[1:-1], y
+    if baseline.ndim == 0:
+        return x, np.concatenate([[baseline], y, [baseline]])
+    base = np.repeat(baseline, 2)[::-1]
+    return (
+        np.concatenate([x, x[::-1]]),
+        np.concatenate([base[-1:], y, base[:1], base[:1], base, base[-1:]]),
+    )
+
+
 def _contiguous_runs(idx: np.ndarray) -> list[np.ndarray]:
     """Split a sorted index array into runs of consecutive indices."""
     if len(idx) == 0:

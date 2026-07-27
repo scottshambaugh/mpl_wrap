@@ -9,6 +9,8 @@
 ### Added
 * `py.typed` marker (PEP 561), so the annotations are visible to type checkers
   in downstream projects
+* `step_wrapped`, mirroring `ax.step` (n x-values against n y-values plus a
+  `where` policy), also available as an `AxesWrap` method
 ### Changed
 ### Removed
 

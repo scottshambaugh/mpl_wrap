@@ -56,8 +56,12 @@ class AxesWrapBase(Axes):
         """Fill a band wrapped into the window. See `mpl_wrap.fill_between_wrapped`."""
         return _plot.fill_between_wrapped(self, *args, **kwargs)
 
+    def step_wrapped(self, *args: Any, **kwargs: Any) -> list[Line2D]:
+        """Step plot wrapped into the window. See `mpl_wrap.step_wrapped`."""
+        return _plot.step_wrapped(self, *args, **kwargs)
+
     def stairs_wrapped(self, *args: Any, **kwargs: Any) -> list[Line2D]:
-        """Step plot wrapped into the window. See `mpl_wrap.stairs_wrapped`."""
+        """Staircase wrapped into the window. See `mpl_wrap.stairs_wrapped`."""
         return _plot.stairs_wrapped(self, *args, **kwargs)
 
     def errorbar_wrapped(self, *args: Any, **kwargs: Any) -> ErrorbarContainer:

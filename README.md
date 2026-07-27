@@ -66,6 +66,7 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `plot_wrapped(ax, x, y, ...)`            | `ax.plot`         |
 | `scatter_wrapped(ax, x, y, ...)`         | `ax.scatter`      |
 | `fill_between_wrapped(ax, x, y1, y2)`    | `ax.fill_between` |
+| `step_wrapped(ax, x, y, where=...)`      | `ax.step`         |
 | `stairs_wrapped(ax, values, edges)`      | `ax.stairs`       |
 | `errorbar_wrapped(ax, x, y, yerr, xerr)` | `ax.errorbar`     |
 
