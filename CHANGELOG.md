@@ -9,6 +9,9 @@
 ### Added
 * `py.typed` marker (PEP 561), so the annotations are visible to type checkers
   in downstream projects
+* `hlines_wrapped` and `vlines_wrapped`, mirroring `ax.hlines` / `ax.vlines`: a
+  span crossing the seam is split so it shows at both edges, and one at least a
+  period long sweeps the window
 * `fill_betweenx_wrapped`, mirroring `ax.fill_betweenx` - the band runs along y
   and wraps the same way - also available as an `AxesWrap` method
 * `step_wrapped`, mirroring `ax.step` (n x-values against n y-values plus a

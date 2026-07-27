@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 from matplotlib.axes import Axes
-from matplotlib.collections import PathCollection
+from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
 from matplotlib.projections import register_projection
@@ -51,6 +51,14 @@ class AxesWrapBase(Axes):
     def scatter_wrapped(self, *args: Any, **kwargs: Any) -> PathCollection:
         """Scatter points folded into the window. See `mpl_wrap.scatter_wrapped`."""
         return _plot.scatter_wrapped(self, *args, **kwargs)
+
+    def hlines_wrapped(self, *args: Any, **kwargs: Any) -> LineCollection:
+        """Horizontal lines split at the seam. See `mpl_wrap.hlines_wrapped`."""
+        return _plot.hlines_wrapped(self, *args, **kwargs)
+
+    def vlines_wrapped(self, *args: Any, **kwargs: Any) -> LineCollection:
+        """Vertical lines split at the seam. See `mpl_wrap.vlines_wrapped`."""
+        return _plot.vlines_wrapped(self, *args, **kwargs)
 
     def fill_between_wrapped(self, *args: Any, **kwargs: Any) -> WrapFillBetween:
         """Fill a band wrapped into the window. See `mpl_wrap.fill_between_wrapped`."""

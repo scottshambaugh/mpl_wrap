@@ -3,7 +3,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-from matplotlib.collections import FillBetweenPolyCollection
+from matplotlib.collections import FillBetweenPolyCollection, LineCollection
 from matplotlib.container import ErrorbarContainer
 from matplotlib.patches import StepPatch
 from matplotlib.path import Path
@@ -13,14 +13,15 @@ from mpl_wrap import (
     errorbar_wrapped,
     fill_between_wrapped,
     fill_betweenx_wrapped,
+    hlines_wrapped,
     plot_wrapped,
     scatter_wrapped,
     set_wrap,
     stairs_wrapped,
     step_wrapped,
+    vlines_wrapped,
 )
 from mpl_wrap.data import _closed_subpaths
-from mpl_wrap.plot import _to_num
 
 WRAP360 = (0.0, 360.0)
 
@@ -41,16 +42,13 @@ def test_public_api() -> None:
         "scatter_wrapped",
         "fill_between_wrapped",
         "fill_betweenx_wrapped",
+        "hlines_wrapped",
+        "vlines_wrapped",
         "step_wrapped",
         "stairs_wrapped",
         "errorbar_wrapped",
     ):
         assert callable(getattr(mpl_wrap, name))
-
-
-def test_to_num_none_passthrough() -> None:
-    _, ax = plt.subplots()
-    assert _to_num(ax.xaxis, None) is None
 
 
 # plot_wrapped
@@ -268,6 +266,53 @@ def test_fill_between_no_window_single_tile() -> None:
     patch = fill_between_wrapped(ax, x, np.zeros(5), np.ones(5))
     assert len(_pieces(patch)) == 1
     assert len(_arr(_path(patch).vertices)) == 2 * len(x) + 1  # + the CLOSEPOLY vertex
+
+
+# hlines_wrapped / vlines_wrapped
+
+
+def test_hlines_wrapped_matches_mpl_unwrapped() -> None:
+    _, ax = plt.subplots()
+    kw = {"colors": "C1", "linestyles": "dashed", "label": "a"}
+    ref = ax.hlines([1.0, 2.0], [0.0, 1.0], [3.0, 4.0], **kw)  # type: ignore[arg-type]
+    got = hlines_wrapped(ax, [1.0, 2.0], [0.0, 1.0], [3.0, 4.0], **kw)  # type: ignore[arg-type]
+    assert isinstance(got, LineCollection)
+    assert got in ax.collections
+    assert np.allclose(_arr(ref.get_segments()), _arr(got.get_segments()))
+    assert got.get_label() == "a" and np.allclose(ref.get_color(), got.get_color())
+
+
+def test_hlines_wrapped_splits_and_sweeps_spans() -> None:
+    _, ax = plt.subplots()
+    # A span across the seam shows at both edges
+    split = hlines_wrapped(ax, [1.0], [350.0], [370.0], wrapx=WRAP360)
+    spans = sorted((s[:, 0].min(), s[:, 0].max()) for s in split.get_segments())
+    assert np.allclose(spans, [(0.0, 10.0), (350.0, 360.0)])
+    # One longer than the period sweeps the window
+    swept = hlines_wrapped(ax, [1.0], [0.0], [800.0], wrapx=WRAP360)
+    assert len(swept.get_segments()) == 3
+    # The height is folded into the y window
+    folded = hlines_wrapped(ax, [370.0], [0.0], [1.0], wrapy=WRAP360)
+    assert folded.get_segments()[0][0, 1] == 10.0
+
+
+def test_vlines_wrapped_is_the_mirror() -> None:
+    _, ax = plt.subplots()
+    lc = vlines_wrapped(ax, [1.0], [350.0], [370.0], wrapy=WRAP360)
+    spans = sorted((s[:, 1].min(), s[:, 1].max()) for s in lc.get_segments())
+    assert np.allclose(spans, [(0.0, 10.0), (350.0, 360.0)])
+    assert np.allclose([s[0, 0] for s in lc.get_segments()], 1.0)  # x is the fixed axis
+
+
+def test_wrapped_lines_expand_per_line_styles() -> None:
+    _, ax = plt.subplots()
+    # The first line splits in two, the second does not: colours follow their line
+    lc = hlines_wrapped(
+        ax, [1.0, 2.0], [350.0, 0.0], [370.0, 1.0], colors=["C0", "C3"], wrapx=WRAP360
+    )
+    assert len(lc.get_segments()) == 3
+    first, second, third = _arr(lc.get_color())
+    assert np.allclose(first, second) and not np.allclose(first, third)
 
 
 # fill_betweenx_wrapped

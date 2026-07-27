@@ -8,7 +8,7 @@ on an axes so subsequent calls pick it up automatically.
 """
 
 from collections.abc import Iterable
-from typing import Any, Literal, Union, overload
+from typing import Any, Literal, Union
 
 import matplotlib as mpl
 import numpy as np
@@ -38,6 +38,8 @@ __all__ = [
     "set_wrap",
     "plot_wrapped",
     "scatter_wrapped",
+    "hlines_wrapped",
+    "vlines_wrapped",
     "fill_between_wrapped",
     "fill_betweenx_wrapped",
     "step_wrapped",
@@ -96,23 +98,13 @@ def _check_step_where(func: str, name: str, value: str) -> None:
         raise ValueError(f"{func}() {name}={value!r} is not one of {list(_STEP_WHERE)}.")
 
 
-# typing overloads
-@overload
-def _to_num(axis: Axis, values: None) -> None: ...
-@overload
-def _to_num(axis: Axis, values: Any) -> np.ndarray: ...
-
-
-def _to_num(axis: Axis, values: Any) -> np.ndarray | None:
+def _to_num(axis: Axis, values: Any) -> np.ndarray:
     """Register units on the axis and return values in matplotlib's numeric form.
 
     Lets datetime (and other unit-ful) inputs be wrapped: the axis learns the
     converter, so ticks still format correctly, and we get plain floats to do the
-    wrapping arithmetic on. Passes None and already-numeric data straight through.
+    wrapping arithmetic on. Already-numeric data passes straight through.
     """
-    if values is None:
-        return None
-
     arr = np.asarray(values)
     if np.issubdtype(arr.dtype, np.number):
         return arr.astype(float)
@@ -291,6 +283,157 @@ def scatter_wrapped(
     """
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
     return ax.scatter(*wrap_points(x, y, wrapx=wx, wrapy=wy), *args, **kwargs)
+
+
+def hlines_wrapped(
+    ax: Axes,
+    y: Any,
+    xmin: Any,
+    xmax: Any,
+    colors: Any = None,
+    linestyles: Any = "solid",
+    *,
+    label: str = "",
+    wrapx: WrapSpec = None,
+    wrapy: WrapSpec = None,
+    **kwargs: Any,
+) -> LineCollection:
+    """Draw horizontal lines on a wrapped axis, splitting each span at the seam.
+
+    Mirrors ``ax.hlines`` with optional ``wrapx`` and/or ``wrapy`` (min, max)
+    windows, and returns the same artist. A span crossing an x seam is split so
+    it shows at both edges, and one at least an x-period long sweeps the window;
+    ``y`` is folded into the y window. Datetime data and windows are accepted.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    y : float or array-like
+        The heights of the lines.
+    xmin, xmax : float or array-like
+        The span of each line (continuous / unwrapped).
+    colors, linestyles, label
+        As in ``ax.hlines``. A list given per line is expanded with it, so each
+        piece of a split line keeps that line's style.
+    **kwargs
+        Forwarded to the ``LineCollection``, as in ``ax.hlines``.
+    wrapx, wrapy : (min, max) or False, optional
+        Wrap window per axis, defaulting to the window stored by `set_wrap`.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
+
+    Returns
+    -------
+    matplotlib.collections.LineCollection
+        The lines, as from ``ax.hlines``.
+    """
+    return _wrapped_lines(ax, True, y, xmin, xmax, colors, linestyles, label, wrapx, wrapy, kwargs)
+
+
+def vlines_wrapped(
+    ax: Axes,
+    x: Any,
+    ymin: Any,
+    ymax: Any,
+    colors: Any = None,
+    linestyles: Any = "solid",
+    *,
+    label: str = "",
+    wrapx: WrapSpec = None,
+    wrapy: WrapSpec = None,
+    **kwargs: Any,
+) -> LineCollection:
+    """Draw vertical lines on a wrapped axis, splitting each span at the seam.
+
+    The `hlines_wrapped` mirror of ``ax.vlines``: a span crossing a y seam is
+    split so it shows at both edges, one at least a y-period long sweeps the
+    window, and ``x`` is folded into the x window. Datetime data and windows are
+    accepted.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    x : float or array-like
+        The positions of the lines.
+    ymin, ymax : float or array-like
+        The span of each line (continuous / unwrapped).
+    colors, linestyles, label
+        As in ``ax.vlines``. A list given per line is expanded with it, so each
+        piece of a split line keeps that line's style.
+    **kwargs
+        Forwarded to the ``LineCollection``, as in ``ax.vlines``.
+    wrapx, wrapy : (min, max) or False, optional
+        Wrap window per axis, defaulting to the window stored by `set_wrap`.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
+
+    Returns
+    -------
+    matplotlib.collections.LineCollection
+        The lines, as from ``ax.vlines``.
+    """
+    return _wrapped_lines(ax, False, x, ymin, ymax, colors, linestyles, label, wrapx, wrapy, kwargs)
+
+
+def _per_piece(style: Any, counts: np.ndarray) -> Any:
+    """Repeat a per-line style over the pieces each line was split into.
+
+    A list is taken to be one entry per line; anything else (a colour, a
+    linestyle string, a dash tuple) applies to all of them, as in ``ax.hlines``.
+    """
+    if not isinstance(style, list) or len(style) != len(counts):
+        return style
+    return [value for value, count in zip(style, counts) for _ in range(count)]
+
+
+def _wrapped_lines(
+    ax: Axes,
+    horizontal: bool,
+    pos: Any,
+    lo: Any,
+    hi: Any,
+    colors: Any,
+    linestyles: Any,
+    label: str,
+    wrapx: WrapSpec,
+    wrapy: WrapSpec,
+    kwargs: dict[str, Any],
+) -> LineCollection:
+    """Split wrapped spans into pieces and hand them back to ax.hlines / ax.vlines."""
+    pos_axis, span_axis = (ax.yaxis, ax.xaxis) if horizontal else (ax.xaxis, ax.yaxis)
+    pos = _to_num(pos_axis, pos)
+    lo = _to_num(span_axis, lo)
+    hi = _to_num(span_axis, hi)
+    wx = _resolve_wrap(ax, "x", wrapx)
+    wy = _resolve_wrap(ax, "y", wrapy)
+    pos, lo, hi = np.broadcast_arrays(np.atleast_1d(pos), np.atleast_1d(lo), np.atleast_1d(hi))
+
+    positions: list[float] = []
+    starts: list[float] = []
+    ends: list[float] = []
+    counts = np.zeros(len(pos), dtype=int)
+    for i, (p, a, b) in enumerate(zip(pos, lo, hi)):
+        span, fixed = np.array([a, b], dtype=float), np.array([p, p], dtype=float)
+        seg_x, seg_y = (span, fixed) if horizontal else (fixed, span)
+        for piece in _wrap_to_segments(seg_x, seg_y, wx, wy):
+            along, across = (piece[:, 0], piece[:, 1]) if horizontal else (piece[:, 1], piece[:, 0])
+            positions.append(across[0])
+            starts.append(along.min())
+            ends.append(along.max())
+            counts[i] += 1
+
+    draw = ax.hlines if horizontal else ax.vlines
+    return draw(
+        positions,
+        starts,
+        ends,
+        colors=_per_piece(colors, counts),
+        linestyles=_per_piece(linestyles, counts),
+        label=label,
+        **kwargs,
+    )
 
 
 def fill_between_wrapped(
