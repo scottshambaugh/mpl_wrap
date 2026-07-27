@@ -1,6 +1,6 @@
 [project]
 name = "mpl_wrap"
-version = "0.1.0"
+version = "0.2.0"
 description = "Matplotlib helper library for plotting wrapped, angular, or periodic data."
 authors = [{ name = "Scott Shambaugh", email = "scottshambaugh@users.noreply.github.com" }]
 requires-python = ">=3.10, <4"

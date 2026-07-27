@@ -56,7 +56,7 @@ def test_axeswrap_data_methods_use_stored_window() -> None:
     _, ax = plt.subplots(subplot_kw={"projection": "wrap"})
     assert isinstance(ax, AxesWrap)
     ax.set_wrap(wrapy=WRAP360)
-    xs, ys = ax.wrap_line([0.0, 1.0], [350.0, 370.0])
+    _, ys = ax.wrap_line([0.0, 1.0], [350.0, 370.0])
     assert np.nanmax(ys) <= 360.0
     assert np.isnan(ys).sum() == 1
     px, py = ax.wrap_points([0.5], [370.0])

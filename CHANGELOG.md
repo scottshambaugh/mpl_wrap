@@ -7,55 +7,38 @@
 
 ## [Unreleased]
 ### Added
+### Changed
+### Removed
+
+## [0.2.0] - 2026-07-27
+### Added
+* `step_wrapped`, `fill_betweenx_wrapped`, `hlines_wrapped`, `vlines_wrapped`,
+  `axhspan_wrapped`, and `axvspan_wrapped` helpers, mirroring their `ax.*`
+  counterparts, also available as `AxesWrap` methods. Spans and line spans are
+  split at the seam, and a span of a period or more sweeps the window.
+* The mirrored methods' own arguments: `where`, `interpolate`, `step` and a
+  default `y2=0` on `fill_between_wrapped`, and `orientation`, `baseline` and
+  `fill` on `stairs_wrapped` (`baseline` and `fill` were silently dropped before)
 * `py.typed` marker (PEP 561), so the annotations are visible to type checkers
   in downstream projects
-* `axhspan_wrapped` and `axvspan_wrapped`, mirroring `ax.axhspan` / `ax.axvspan`:
-  the band is folded into the window, splitting into two rectangles when it
-  straddles the seam and filling the window when it spans a period or more
-* `hlines_wrapped` and `vlines_wrapped`, mirroring `ax.hlines` / `ax.vlines`: a
-  span crossing the seam is split so it shows at both edges, and one at least a
-  period long sweeps the window
-* `fill_betweenx_wrapped`, mirroring `ax.fill_betweenx` - the band runs along y
-  and wraps the same way - also available as an `AxesWrap` method
-* `step_wrapped`, mirroring `ax.step` (n x-values against n y-values plus a
-  `where` policy), also available as an `AxesWrap` method
-* `fill_between_wrapped` now supports `ax.fill_between`'s `where`,
-  `interpolate`, and `step` arguments, and defaults `y2` to 0
-* `stairs_wrapped` now supports `ax.stairs`' `orientation`, `baseline`, and
-  `fill` arguments (previously `baseline` and `fill` were silently dropped)
 
 ### Changed
-* `stairs_wrapped` defaults to `baseline=0` as `ax.stairs` does, so both ends of
-  the staircase now drop to the baseline. Pass `baseline=None` for the previous
-  bare-staircase behavior.
-* `fill_between_wrapped` breaks the band at non-finite samples instead of
-  raising, so gappy series fill run-by-run
-* `fill_between_wrapped` now returns a `FillBetweenPolyCollection` (in
-  `ax.collections`) and `stairs_wrapped` a `StepPatch` (in `ax.patches`), the
-  same artists their matplotlib counterparts return, carrying the wrapped
-  geometry. `set_data` on either re-wraps into the same window(s).
-* `stairs_wrapped` returns a single artist for both the line and the filled
-  form, and its `**kwargs` are `StepPatch` (patch) properties rather than
-  `ax.plot` line properties, as in `ax.stairs`
-* `fill_between_wrapped` takes its colour from the fill colour cycle when none
-  is given, as `ax.fill_between` does
-* Wrapped fills no longer replace their axes clip box, so a window wider than
-  the view can no longer spill outside the axes
-* A wrapped fill's edge, if styled, is stroked along the band itself: the tiling
-  seams, the joins between its pieces, and a saturated stretch (which is covered
-  everywhere, so has no boundary) are not drawn
-* Markers are drawn only at the data points. Routing a line to the window edges
-  inserts vertices, and `step_wrapped` expands treads and risers; markers used to
-  land on those too. Matplotlib likewise draws markers at the data points rather
-  than at the vertices a drawstyle adds.
-* `errorbar_wrapped` matches `ax.errorbar` more closely: caps are the documented
-  size (`capsize` is the half-width), `rcParams["errorbar.capsize"]` and
-  `errorbar.elinewidth` are honoured, x errors come before y errors in the
-  container's bars and caps, and the data line takes the `_nolegend_` label and
-  the zorder just above the bars
-* `errorbar_wrapped`'s data line follows the wrapped polyline rather than folded
-  points, so with the default `fmt=""` it no longer draws a modulus jump at the
-  seam - the artifact the library exists to prevent
+* Every helper returns the artist type its matplotlib counterpart does, in the
+  same container: `fill_between_wrapped` a `FillBetweenPolyCollection` and
+  `stairs_wrapped` a `StepPatch`, both carrying the wrapped geometry and
+  re-wrapping on `set_data`. `stairs_wrapped` returns one artist for the line
+  and filled forms, so its `**kwargs` are now patch rather than line properties.
+* Markers are drawn only at the data points, not at the vertices that seam
+  routing and step expansion insert
+* Wrapped fills follow `ax.fill_between` more closely: the fill colour cycle,
+  an edge stroked along the band rather than along the tiling seams, no spill
+  outside the axes, and non-finite samples breaking the band instead of raising
+* `errorbar_wrapped` matches `ax.errorbar`: cap size, the `errorbar.capsize` and
+  `errorbar.elinewidth` rcParams, x errors before y errors in the container, the
+  data line's label and zorder, and a data line that follows the wrapped
+  polyline instead of jumping at the seam
+* `stairs_wrapped` defaults to `baseline=0` as `ax.stairs` does, so both ends
+  drop to the baseline. Pass `baseline=None` for the previous bare staircase.
 
 ### Removed
 

@@ -6,6 +6,7 @@ and `wrap_points` are the public entry points. The plotting helpers in
 """
 
 from collections.abc import Iterable
+from itertools import pairwise
 from typing import Any
 
 import numpy as np
@@ -344,7 +345,7 @@ def _saturated_band_vertices(
     codes: list[np.ndarray] = []
     n = len(x)
     bounds = np.concatenate([[0], np.nonzero(np.diff(full))[0] + 1, [n]])
-    for start, stop in zip(bounds[:-1], bounds[1:]):
+    for start, stop in pairwise(bounds):
         open_left, open_right = start > 0, stop < n
         share_right = open_right and not open_left
         if full[start]:

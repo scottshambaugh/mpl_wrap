@@ -1,3 +1,4 @@
+from itertools import pairwise
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -34,7 +35,7 @@ def _arr(values: Any) -> np.ndarray:
 
 
 def test_version() -> None:
-    assert mpl_wrap.__version__ == "0.1.0"
+    assert mpl_wrap.__version__ == "0.2.0"
 
 
 def test_public_api() -> None:
@@ -142,7 +143,7 @@ def _pieces(artist: Any) -> list[np.ndarray]:
     path = _path(artist)
     verts, codes = _arr(path.vertices), np.asarray(path.codes)
     starts = [*np.nonzero(codes == Path.MOVETO)[0], len(verts)]
-    return [verts[a:b] for a, b in zip(starts, starts[1:])]
+    return [verts[a:b] for a, b in pairwise(starts)]
 
 
 def test_fill_between_artist_matches_fill_between() -> None:

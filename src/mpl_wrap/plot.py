@@ -8,7 +8,7 @@ on an axes so subsequent calls pick it up automatically.
 """
 
 from collections.abc import Iterable
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 import matplotlib as mpl
 import numpy as np
@@ -37,18 +37,18 @@ from mpl_wrap.data import (
 )
 
 __all__ = [
-    "set_wrap",
-    "plot_wrapped",
-    "scatter_wrapped",
-    "hlines_wrapped",
-    "vlines_wrapped",
     "axhspan_wrapped",
     "axvspan_wrapped",
+    "errorbar_wrapped",
     "fill_between_wrapped",
     "fill_betweenx_wrapped",
-    "step_wrapped",
+    "hlines_wrapped",
+    "plot_wrapped",
+    "scatter_wrapped",
+    "set_wrap",
     "stairs_wrapped",
-    "errorbar_wrapped",
+    "step_wrapped",
+    "vlines_wrapped",
 ]
 
 # Wrap window spec:
@@ -56,7 +56,7 @@ __all__ = [
 # - True to require the window stored by set_wrap
 # - False to explicitly disable wrapping on an axis with a stored window
 # - None to fall back to the window stored by set_wrap (if any).
-WrapSpec = Union[Iterable[Any], bool, None]
+WrapSpec = Iterable[Any] | bool | None
 
 _WINDOW_ATTR = "_mpl_wrap_windows"
 
