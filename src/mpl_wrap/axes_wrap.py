@@ -7,18 +7,18 @@ with `wrap_axes`. The inherited plotting methods are untouched, so wrapped and
 unwrapped artists mix freely on one axes.
 """
 
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.collections import PathCollection
 from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
-from matplotlib.patches import PathPatch
 from matplotlib.projections import register_projection
 
 from mpl_wrap import data as _data
 from mpl_wrap import plot as _plot
+from mpl_wrap.artists import WrapFillBetween, WrapStepPatch
 from mpl_wrap.plot import WrapSpec
 
 __all__ = [
@@ -52,7 +52,7 @@ class AxesWrapBase(Axes):
         """Scatter points folded into the window. See `mpl_wrap.scatter_wrapped`."""
         return _plot.scatter_wrapped(self, *args, **kwargs)
 
-    def fill_between_wrapped(self, *args: Any, **kwargs: Any) -> PathPatch:
+    def fill_between_wrapped(self, *args: Any, **kwargs: Any) -> WrapFillBetween:
         """Fill a band wrapped into the window. See `mpl_wrap.fill_between_wrapped`."""
         return _plot.fill_between_wrapped(self, *args, **kwargs)
 
@@ -60,7 +60,7 @@ class AxesWrapBase(Axes):
         """Step plot wrapped into the window. See `mpl_wrap.step_wrapped`."""
         return _plot.step_wrapped(self, *args, **kwargs)
 
-    def stairs_wrapped(self, *args: Any, **kwargs: Any) -> Union[list[Line2D], PathPatch]:
+    def stairs_wrapped(self, *args: Any, **kwargs: Any) -> WrapStepPatch:
         """Staircase wrapped into the window. See `mpl_wrap.stairs_wrapped`."""
         return _plot.stairs_wrapped(self, *args, **kwargs)
 

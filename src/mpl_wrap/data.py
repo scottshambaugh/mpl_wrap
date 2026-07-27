@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 from matplotlib.path import Path
+from matplotlib.transforms import Bbox
 
 __all__ = [
     "wrap_line",
@@ -244,7 +245,7 @@ def _tiled_band_vertices(
     y_all = (y_tile[None, :] - m_flat[:, None] * py).ravel()
     codes = np.full(len(m_flat) * tile_len, Path.LINETO, dtype=np.uint8)
     codes[::tile_len] = Path.MOVETO
-    return np.column_stack([x_all, y_all]), codes
+    return _closed_subpaths(np.column_stack([x_all, y_all]), codes)
 
 
 def _saturated_band_vertices(
@@ -253,39 +254,61 @@ def _saturated_band_vertices(
     """Build the y-wrapped band path, collapsing saturated x-runs to a rectangle.
 
     Where the band spans a full period it fills the window, so each contiguous
-    saturated x-run becomes one window-height rectangle instead of a stack of
-    tiles. The remaining narrow runs are tiled locally over just their own period
-    offsets. This avoids building the thousands of window-spanning tiles a fast,
-    mostly-saturated angle would otherwise need.
+    saturated x-run becomes one rectangle instead of a stack of tiles. The
+    remaining narrow runs are tiled locally over just their own period offsets.
+    This avoids building the thousands of window-spanning tiles a fast, mostly
+    saturated angle would otherwise need.
+
+    The rectangle runs a period past the window on each side, so that an edge,
+    if stroked, is clipped away: a saturated stretch is covered everywhere, so
+    it has no boundary to draw. Where two pieces meet, the join is not a band
+    edge either, so each piece is left open along the side it shares - filling
+    closes a subpath implicitly, stroking does not - and the piece is traced
+    from that side so the open edge falls there.
     """
     y0, y1 = wrapy
     period = y1 - y0
     verts: list[np.ndarray] = []
     codes: list[np.ndarray] = []
-    rect_codes = np.array([Path.MOVETO, Path.LINETO, Path.LINETO, Path.LINETO], dtype=np.uint8)
-    for run in _contiguous_runs(np.nonzero(full)[0]):
-        xa, xb = x[run[0]], x[run[-1]]
-        verts.append(np.array([[xa, y0], [xb, y0], [xb, y1], [xa, y1]]))
-        codes.append(rect_codes)
     n = len(x)
-    for run in _contiguous_runs(np.nonzero(~full)[0]):
-        # Extend each narrow run by one sample into the adjacent saturated region so
-        # its tiles bridge the transition and abut the rectangle (they meet at the
-        # boundary x-line, so no gap and no overlapping-alpha).
-        sl = slice(max(int(run[0]) - 1, 0), min(int(run[-1]) + 1, n - 1) + 1)
-        lo_r, hi_r, x_r = lo[sl], hi[sl], x[sl]
-        m = np.arange(
-            int(np.floor((lo_r.min() - y1) / period)),
-            int(np.ceil((hi_r.max() - y0) / period)) + 1,
-            dtype=float,
-        )
-        tile_len = 2 * len(x_r)
-        x_tile = np.tile(np.concatenate([x_r, x_r[::-1]]), len(m))
-        y_tile = (np.concatenate([lo_r, hi_r[::-1]])[None, :] - m[:, None] * period).ravel()
-        verts.append(np.column_stack([x_tile, y_tile]))
-        c = np.full(len(m) * tile_len, Path.LINETO, dtype=np.uint8)
-        c[::tile_len] = Path.MOVETO
-        codes.append(c)
+    bounds = np.concatenate([[0], np.nonzero(np.diff(full))[0] + 1, [n]])
+    for start, stop in zip(bounds[:-1], bounds[1:]):
+        # An edge shared with the neighbouring piece is a join, not a band edge.
+        open_left, open_right = start > 0, stop < n
+        if full[start]:
+            xa, xb = x[start], x[stop - 1]
+            ya, yb = y0 - period, y1 + period
+            # Rolled (not reversed) to move the open edge: reversing would flip the
+            # winding, and an opposite-wound piece cancels where it meets its neighbour.
+            rect = np.array([[xa, ya], [xb, ya], [xb, yb], [xa, yb]])
+            verts.append(np.roll(rect, -2, axis=0) if open_right and not open_left else rect)
+            codes.append(np.array([Path.MOVETO, *[Path.LINETO] * 3], dtype=np.uint8))
+        else:
+            # Extend each narrow run by one sample into the adjacent saturated region
+            # so its tiles bridge the transition and abut the rectangle (they meet at
+            # the boundary x-line, so no gap and no overlapping-alpha).
+            sl = slice(max(int(start) - 1, 0), min(int(stop - 1) + 1, n - 1) + 1)
+            lo_r, hi_r, x_r = lo[sl], hi[sl], x[sl]
+            m = np.arange(
+                int(np.floor((lo_r.min() - y1) / period)),
+                int(np.ceil((hi_r.max() - y0) / period)) + 1,
+                dtype=float,
+            )
+            # The ring closes along its left cap; rolling its start by one side's
+            # worth of samples moves that open edge to the right cap instead.
+            x_ring = np.concatenate([x_r, x_r[::-1]])
+            y_ring = np.concatenate([lo_r, hi_r[::-1]])
+            if open_right and not open_left:
+                x_ring, y_ring = np.roll(x_ring, -len(x_r)), np.roll(y_ring, -len(x_r))
+            tile_len = 2 * len(x_r)
+            x_tile = np.tile(x_ring, len(m))
+            y_tile = (y_ring[None, :] - m[:, None] * period).ravel()
+            verts.append(np.column_stack([x_tile, y_tile]))
+            c = np.full(len(m) * tile_len, Path.LINETO, dtype=np.uint8)
+            c[::tile_len] = Path.MOVETO
+            codes.append(c)
+        if not (open_left or open_right):  # both caps are real: close it, as ax.fill_between does
+            verts[-1], codes[-1] = _closed_subpaths(verts[-1], codes[-1])
     if not verts:
         return np.empty((0, 2)), np.empty(0, dtype=np.uint8)
     return np.concatenate(verts), np.concatenate(codes)
@@ -377,6 +400,50 @@ def _band_vertices(
     if not verts:
         return np.empty((0, 2)), np.empty(0, dtype=np.uint8)
     return np.concatenate(verts), np.concatenate(codes)
+
+
+def _polyline_path(x: np.ndarray, y: np.ndarray) -> Path:
+    """Turn a NaN-broken polyline into a Path, one subpath per finite run."""
+    runs = [
+        r for r in _contiguous_runs(np.nonzero(np.isfinite(x) & np.isfinite(y))[0]) if len(r) > 1
+    ]
+    if not runs:
+        return Path(np.empty((0, 2)), np.empty(0, dtype=np.uint8))
+    verts = np.concatenate([np.column_stack([x[r], y[r]]) for r in runs])
+    codes = np.full(len(verts), Path.LINETO, dtype=np.uint8)
+    codes[np.cumsum([0] + [len(r) for r in runs[:-1]])] = Path.MOVETO
+    return Path(verts, codes)
+
+
+def _closed_subpaths(verts: np.ndarray, codes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Terminate every subpath with an explicit CLOSEPOLY.
+
+    Filling closes subpaths implicitly, but point-in-path tests do not: without
+    this, a hit test on the compound path joins one tile to the next and reports
+    coverage between them.
+    """
+    if len(verts) == 0:
+        return verts, codes
+    starts = np.nonzero(codes == Path.MOVETO)[0]
+    ends = np.append(starts[1:], len(codes))
+    close = np.array([Path.CLOSEPOLY], dtype=np.uint8)
+    out_v = [a for s, e in zip(starts, ends) for a in (verts[s:e], verts[s : s + 1])]
+    out_c = [a for s, e in zip(starts, ends) for a in (codes[s:e], close)]
+    return np.concatenate(out_v), np.concatenate(out_c)
+
+
+def _band_extent(verts: np.ndarray, wrapx: np.ndarray | None, wrapy: np.ndarray | None) -> Bbox:
+    """The extent a tiled band actually covers: the window where wrapped, its own where not.
+
+    The tiling deliberately overshoots the window, so the raw vertices span many
+    periods; what is drawn is the intersection with the window. A band narrower
+    than the period leaves gaps inside the window, which this does not subtract.
+    """
+    if len(verts) == 0:
+        return Bbox.null()
+    x0, x1 = wrapx if wrapx is not None else (verts[:, 0].min(), verts[:, 0].max())
+    y0, y1 = wrapy if wrapy is not None else (verts[:, 1].min(), verts[:, 1].max())
+    return Bbox.from_extents(float(x0), float(y0), float(x1), float(y1))
 
 
 def _error_bounds(values: np.ndarray, error: Any) -> tuple[np.ndarray, np.ndarray]:

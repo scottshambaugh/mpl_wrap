@@ -70,6 +70,9 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `stairs_wrapped(ax, values, edges)`      | `ax.stairs`       |
 | `errorbar_wrapped(ax, x, y, yerr, xerr)` | `ax.errorbar`     |
 
+Each returns the same artist type as the method it mirrors, in the same `Axes`
+container.
+
 Passing `wrapx=False` / `wrapy=False` disables wrapping for a single call (or
 clears the stored window when passed to `set_wrap`), and `wrapx=True` /
 `wrapy=True` requires the stored window.

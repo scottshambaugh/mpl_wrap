@@ -3,9 +3,9 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.collections import FillBetweenPolyCollection
 from matplotlib.container import ErrorbarContainer
-from matplotlib.lines import Line2D
-from matplotlib.patches import PathPatch
+from matplotlib.patches import StepPatch
 from matplotlib.path import Path
 
 import mpl_wrap
@@ -18,6 +18,7 @@ from mpl_wrap import (
     stairs_wrapped,
     step_wrapped,
 )
+from mpl_wrap.data import _closed_subpaths
 from mpl_wrap.plot import _to_num
 
 WRAP360 = (0.0, 360.0)
@@ -26,12 +27,6 @@ WRAP360 = (0.0, 360.0)
 def _arr(values: Any) -> np.ndarray:
     """Coerce loosely-typed artist data (get_xydata, path attributes) for numpy ops."""
     return np.asarray(values, dtype=float)
-
-
-def _lines(artists: Any) -> list[Line2D]:
-    """Narrow a helper's return to its lines (stairs_wrapped can also return a patch)."""
-    assert isinstance(artists, list)
-    return artists
 
 
 def test_version() -> None:
@@ -110,62 +105,107 @@ def _moveto_count(codes: Any) -> int:
     return int((np.asarray(codes) == Path.MOVETO).sum())
 
 
-def test_fill_between_tiles_y_offsets() -> None:
-    _, ax = plt.subplots()
-    x = np.array([0.0, 1.0])
-    patch = fill_between_wrapped(ax, x, [0.0, 0.0], [10.0, 10.0], wrapy=WRAP360)
-    path = patch.get_path()
-    verts = _arr(path.vertices)
-    # Narrow band tiles over period offsets -1..1: 3 tiles of 2*len(x) vertices
-    assert _moveto_count(path.codes) == 3
-    assert len(verts) == 3 * 2 * len(x)
-    # Tiles are exact period-shifted copies covering the band at each offset
-    ys = verts[:, 1].reshape(3, -1)
-    assert np.allclose(ys[1] - ys[0], -360.0) or np.allclose(ys[1] - ys[0], 360.0)
+def _path(artist: Any) -> Path:
+    """The single compound path a wrapped band or staircase artist draws."""
+    paths = artist.get_paths() if hasattr(artist, "get_paths") else [artist.get_path()]
+    assert len(paths) == 1
+    return paths[0]
 
 
-def test_fill_between_saturated_band_collapses_to_rectangle() -> None:
+def _covers(artist: Any, x: float, y: float) -> bool:
+    """Whether the artist's band covers a data point.
+
+    Subpaths are closed first, as filling closes them: a hit test on an open
+    subpath joins it to the next one and reports coverage in between.
+    """
+    path = _path(artist)
+    closed = Path(*_closed_subpaths(_arr(path.vertices), np.asarray(path.codes, dtype=np.uint8)))
+    return bool(closed.contains_point((x, y)))
+
+
+def _pieces(artist: Any) -> list[np.ndarray]:
+    """The artist's compound path, split into its subpaths' vertices."""
+    path = _path(artist)
+    verts, codes = _arr(path.vertices), np.asarray(path.codes)
+    starts = [*np.nonzero(codes == Path.MOVETO)[0], len(verts)]
+    return [verts[a:b] for a, b in zip(starts, starts[1:])]
+
+
+def test_fill_between_artist_matches_fill_between() -> None:
     _, ax = plt.subplots()
-    patch = fill_between_wrapped(ax, [0.0, 1.0], [0.0, 0.0], [400.0, 400.0], wrapy=WRAP360)
-    path = patch.get_path()
-    verts = _arr(path.vertices)
-    # Band wider than the period fills the window with a single 4-vertex rectangle
-    assert _moveto_count(path.codes) == 1
-    assert len(verts) == 4
-    assert set(np.unique(verts[:, 1])) == {0.0, 360.0}
+    band = fill_between_wrapped(ax, [0.0, 1.0], [0.0, 0.0], [10.0, 10.0], wrapy=WRAP360)
+    # Same artist type and container as ax.fill_between, from the same colour cycle
+    assert isinstance(band, FillBetweenPolyCollection)
+    assert band in ax.collections
+    _, ax2 = plt.subplots()
+    assert np.allclose(band.get_facecolor(), ax2.fill_between([0.0, 1.0], 0.0, 1.0).get_facecolor())
+
+
+def test_fill_between_wraps_band_across_seam() -> None:
+    _, ax = plt.subplots()
+    band = fill_between_wrapped(ax, [0.0, 1.0], [350.0, 350.0], [370.0, 370.0], wrapy=WRAP360)
+    # The 350..370 band shows at both edges of the window, and nowhere between
+    assert _covers(band, 0.5, 355.0) and _covers(band, 0.5, 5.0)
+    assert not _covers(band, 0.5, 180.0)
+    assert len(_pieces(band)) > 1
+
+
+def test_fill_between_saturated_band_fills_window() -> None:
+    _, ax = plt.subplots()
+    band = fill_between_wrapped(ax, [0.0, 1.0], [0.0, 0.0], [400.0, 400.0], wrapy=WRAP360)
+    # Band wider than the period fills the window with a single rectangle, which
+    # runs past the window so that a stroked edge is clipped away
+    (piece,) = _pieces(band)
+    assert set(np.unique(piece[:, 0])) == {0.0, 1.0}
+    assert piece[:, 1].min() < 0.0 and piece[:, 1].max() > 360.0
+    assert _covers(band, 0.5, 1.0) and _covers(band, 0.5, 359.0)
 
 
 def test_fill_between_mixed_saturation_bridges_runs() -> None:
     _, ax = plt.subplots()
     x = np.array([0.0, 1.0, 2.0])
-    lo = np.array([0.0, 0.0, 0.0])
     hi = np.array([400.0, 100.0, 400.0])
-    patch = fill_between_wrapped(ax, x, lo, hi, wrapy=WRAP360)
-    # Two single-point saturated rectangles + the narrow run tiled over its offsets
-    assert _moveto_count(patch.get_path().codes) == 2 + 3
+    band = fill_between_wrapped(ax, x, np.zeros(3), hi, wrapy=WRAP360)
+    # The saturated ends fill the window; the narrow middle covers only its band
+    assert _covers(band, 0.0, 350.0) and _covers(band, 2.0, 350.0)
+    assert _covers(band, 1.0, 50.0) and not _covers(band, 1.0, 200.0)
 
 
-def test_fill_between_both_axes_tiles_x_and_y() -> None:
+def test_fill_between_clipped_to_window_on_both_axes() -> None:
     _, ax = plt.subplots()
-    x = np.array([0.0, 1.0])
-    patch = fill_between_wrapped(ax, x, [0.0, 0.0], [10.0, 10.0], wrapx=WRAP360, wrapy=WRAP360)
-    # 3 x-offsets times 3 y-offsets
-    assert _moveto_count(patch.get_path().codes) == 9
+    band = fill_between_wrapped(
+        ax, [0.0, 400.0], [0.0, 0.0], [10.0, 10.0], wrapx=WRAP360, wrapy=WRAP360
+    )
+    # The tiles overshoot the window, so the artist is clipped back to it, and
+    # the data limits report the window rather than the tiling
+    assert band.get_clip_path() is not None
+    assert np.allclose(band.get_datalim(ax.transData).extents, [0.0, 0.0, 360.0, 360.0])
+    assert len(_pieces(band)) > 1
 
 
 def test_fill_between_x_only_wrap() -> None:
     _, ax = plt.subplots()
-    patch = fill_between_wrapped(ax, [350.0, 370.0], [0.0, 0.0], [1.0, 1.0], wrapx=WRAP360)
-    # x spans 350..370, tiling over x period offsets -1..2
-    assert _moveto_count(patch.get_path().codes) == 4
-    # The window clip is applied (an axis-aligned rectangle becomes a clipbox)
-    assert patch.clipbox is not None
+    band = fill_between_wrapped(ax, [350.0, 370.0], [0.0, 0.0], [1.0, 1.0], wrapx=WRAP360)
+    # x is folded into the window (the 350..370 band shows at both edges), y is left alone
+    assert _covers(band, 355.0, 0.5) and _covers(band, 5.0, 0.5)
+    assert not _covers(band, 180.0, 0.5)
+    assert np.allclose(band.get_datalim(ax.transData).extents, [0.0, 0.0, 360.0, 1.0])
 
 
 def test_fill_between_empty_data() -> None:
     _, ax = plt.subplots()
-    patch = fill_between_wrapped(ax, [], [], [], wrapy=WRAP360)
-    assert len(_arr(patch.get_path().vertices)) == 0
+    band = fill_between_wrapped(ax, [], [], [], wrapy=WRAP360)
+    assert len(_arr(_path(band).vertices)) == 0
+
+
+def test_fill_between_set_data_rewraps() -> None:
+    _, ax = plt.subplots()
+    band = fill_between_wrapped(ax, [0.0, 1.0], [0.0, 0.0], [10.0, 10.0], wrapy=WRAP360)
+    assert not _covers(band, 0.5, 355.0)
+    band.set_data([0.0, 1.0], [350.0, 350.0], [370.0, 370.0])
+    # The new data is wrapped too, rather than drawn straight
+    assert _covers(band, 0.5, 355.0) and _covers(band, 0.5, 5.0)
+    assert not _covers(band, 0.5, 180.0)
 
 
 def test_fill_between_where_and_interpolate_match_mpl() -> None:
@@ -184,9 +224,9 @@ def test_fill_between_where_and_interpolate_match_mpl() -> None:
         ref = ax.fill_between(x, y1, y2, where=where, interpolate=interpolate, step=step)
         patch = fill_between_wrapped(ax, x, y1, y2, where=where, interpolate=interpolate, step=step)
         ref_polys = [_arr(p.vertices) for p in ref.get_paths()]
-        assert _moveto_count(patch.get_path().codes) == len(ref_polys)
+        assert len(_pieces(patch)) == len(ref_polys)
         # Same point set per run (the band is traced in a different vertex order)
-        got = _arr(patch.get_path().vertices)
+        got = _arr(_path(patch).vertices)
         assert np.allclose(
             np.unique(np.round(got, 9), axis=0),
             np.unique(np.round(np.concatenate(ref_polys), 9), axis=0),
@@ -203,10 +243,10 @@ def test_fill_between_runs_break_at_where_and_nonfinite() -> None:
         (np.array([0.0, 0.0, np.nan, 0.0, 0.0, 0.0]), None),
     ):
         patch = fill_between_wrapped(ax, x, lo, hi, where=where, wrapy=WRAP360)
-        verts = _arr(patch.get_path().vertices)
+        verts = _arr(_path(patch).vertices)
         assert np.isfinite(verts).all()
         assert verts[:, 0].min() == 0.0 and verts[:, 0].max() == 5.0
-        assert _moveto_count(patch.get_path().codes) > 2  # a saturated run each side
+        assert len(_pieces(patch)) > 2  # a saturated run each side
         assert not np.any((verts[:, 0] > 1.0) & (verts[:, 0] < 3.0))  # the gap at x=2
 
 
@@ -214,9 +254,8 @@ def test_fill_between_no_window_single_tile() -> None:
     _, ax = plt.subplots()
     x = np.linspace(0.0, 1.0, 5)
     patch = fill_between_wrapped(ax, x, np.zeros(5), np.ones(5))
-    path = patch.get_path()
-    assert _moveto_count(path.codes) == 1
-    assert len(_arr(path.vertices)) == 2 * len(x)
+    assert len(_pieces(patch)) == 1
+    assert len(_arr(_path(patch).vertices)) == 2 * len(x) + 1  # + the CLOSEPOLY vertex
 
 
 # step_wrapped
@@ -243,69 +282,78 @@ def test_step_wrapped_matches_mpl_and_wraps() -> None:
 # stairs_wrapped
 
 
+def test_stairs_wrapped_artist_matches_stairs() -> None:
+    _, ax = plt.subplots()
+    patch = stairs_wrapped(ax, [10.0, 20.0, 30.0], wrapy=WRAP360)
+    # Same artist type and container as ax.stairs, and the data round-trips
+    assert isinstance(patch, StepPatch)
+    assert patch in ax.patches
+    values, edges, baseline = patch.get_data()
+    assert np.allclose(_arr(values), [10.0, 20.0, 30.0])
+    assert np.allclose(_arr(edges), [0.0, 1.0, 2.0, 3.0])  # default edges
+    assert _arr(baseline) == 0.0
+
+
 def test_stairs_wrapped_routes_riser_at_seam() -> None:
     _, ax = plt.subplots()
-    (ln,) = _lines(
-        stairs_wrapped(ax, [350.0, 370.0], [0.0, 1.0, 2.0], baseline=None, wrapy=WRAP360)
-    )
-    xdata, ydata = _arr(ln.get_xdata()), _arr(ln.get_ydata())
-    assert np.nanmin(ydata) >= 0.0 and np.nanmax(ydata) <= 360.0
-    assert np.isnan(ydata).sum() == 1
-    # The riser at x=1 crosses the seam vertically
-    seam = np.isfinite(ydata) & (xdata == 1.0)
-    assert set(ydata[seam]) >= {0.0, 360.0}
-
-
-def test_stairs_wrapped_default_edges() -> None:
-    _, ax = plt.subplots()
-    (ln,) = _lines(stairs_wrapped(ax, [10.0, 20.0, 30.0], wrapy=WRAP360))
-    assert _arr(ln.get_xdata()).max() == 3.0
+    patch = stairs_wrapped(ax, [350.0, 370.0], [0.0, 1.0, 2.0], baseline=None, wrapy=WRAP360)
+    verts = _arr(_path(patch).vertices)
+    assert verts[:, 1].min() >= 0.0 and verts[:, 1].max() <= 360.0
+    # The staircase breaks into two pieces, and the riser at x=1 reaches both edges
+    assert len(_pieces(patch)) == 2
+    seam = verts[verts[:, 0] == 1.0][:, 1]
+    assert set(seam) >= {0.0, 360.0}
 
 
 def test_stairs_wrapped_baselines() -> None:
     _, ax = plt.subplots()
     values, edges = [10.0, 20.0], [0.0, 1.0, 2.0]
     # As in ax.stairs, the default baseline=0 drops both ends down to it
-    (drops,) = _lines(stairs_wrapped(ax, values, edges))
-    assert _arr(drops.get_ydata())[[0, -1]].tolist() == [0.0, 0.0]
-    (bare,) = _lines(stairs_wrapped(ax, values, edges, baseline=None))
-    assert _arr(bare.get_ydata())[[0, -1]].tolist() == [10.0, 20.0]
+    drops = _arr(_path(stairs_wrapped(ax, values, edges)).vertices)
+    assert drops[[0, -1], 1].tolist() == [0.0, 0.0]
+    bare = _arr(_path(stairs_wrapped(ax, values, edges, baseline=None)).vertices)
+    assert bare[[0, -1], 1].tolist() == [10.0, 20.0]
     # An array baseline closes the outline back along its own staircase
-    (closed,) = _lines(stairs_wrapped(ax, values, edges, baseline=[1.0, 2.0]))
-    xy = np.column_stack([_arr(closed.get_xdata()), _arr(closed.get_ydata())])
-    assert np.allclose(xy[0], xy[-1])
+    closed = _arr(_path(stairs_wrapped(ax, values, edges, baseline=[1.0, 2.0])).vertices)
+    assert np.allclose(closed[0], closed[-1])
     # A baseline drop that crosses the seam is routed to the edges like any riser
-    (wrapped,) = _lines(stairs_wrapped(ax, [350.0], [0.0, 1.0], baseline=-20.0, wrapy=WRAP360))
-    ydata = _arr(wrapped.get_ydata())
-    assert np.nanmin(ydata) >= 0.0 and np.nanmax(ydata) <= 360.0
-    assert np.isnan(ydata).sum() == 2  # one break per end drop
+    wrapped = stairs_wrapped(ax, [350.0], [0.0, 1.0], baseline=-20.0, wrapy=WRAP360)
+    wverts = _arr(_path(wrapped).vertices)
+    assert wverts[:, 1].min() >= 0.0 and wverts[:, 1].max() <= 360.0
+    assert len(_pieces(wrapped)) == 3  # one break per end drop
 
 
 def test_stairs_wrapped_horizontal_swaps_axes() -> None:
     _, ax = plt.subplots()
-    (ln,) = _lines(
-        stairs_wrapped(ax, [350.0, 370.0], [0.0, 1.0, 2.0], orientation="horizontal", wrapx=WRAP360)
+    patch = stairs_wrapped(
+        ax, [350.0, 370.0], [0.0, 1.0, 2.0], orientation="horizontal", wrapx=WRAP360
     )
-    xdata, ydata = _arr(ln.get_xdata()), _arr(ln.get_ydata())
-    assert np.nanmin(xdata) >= 0.0 and np.nanmax(xdata) <= 360.0  # values wrap on x now
-    assert np.nanmax(ydata) == 2.0  # edges run along y
+    verts = _arr(_path(patch).vertices)
+    assert verts[:, 0].min() >= 0.0 and verts[:, 0].max() <= 360.0  # values wrap on x now
+    assert verts[:, 1].max() == 2.0  # edges run along y
 
 
 def test_stairs_wrapped_fill_tiles_like_fill_between() -> None:
     _, ax = plt.subplots()
-    values, edges = [10.0, 20.0], [0.0, 1.0, 2.0]
+    values, edges = [100.0, 400.0], [0.0, 1.0, 2.0]
     patch = stairs_wrapped(ax, values, edges, fill=True, wrapy=WRAP360, alpha=0.3)
-    assert isinstance(patch, PathPatch)
-    assert patch in ax.patches
-    verts = _arr(patch.get_path().vertices)
-    assert verts[:, 1].min() < 0.0 and verts[:, 1].max() > 360.0  # tiled past the window
-    assert patch.clipbox is not None  # clipped back to the window
-    assert not patch.get_in_layout()
+    assert isinstance(patch, StepPatch) and patch.get_fill()
+    # Tiled over the window, clipped back to it, and covering both wrapped bins
+    assert patch.get_clip_path() is not None
+    assert _covers(patch, 0.5, 50.0) and _covers(patch, 1.5, 350.0)
+    assert not _covers(patch, 0.5, 200.0)
     # A horizontal fill tiles along x instead
     horiz = stairs_wrapped(ax, values, edges, orientation="horizontal", fill=True, wrapx=WRAP360)
-    assert isinstance(horiz, PathPatch)
-    hverts = _arr(horiz.get_path().vertices)
-    assert hverts[:, 0].min() < 0.0 and hverts[:, 0].max() > 360.0
+    assert _covers(horiz, 50.0, 0.5) and _covers(horiz, 350.0, 1.5)
+
+
+def test_stairs_wrapped_set_data_rewraps() -> None:
+    _, ax = plt.subplots()
+    patch = stairs_wrapped(ax, [10.0, 20.0], [0.0, 1.0, 2.0], baseline=None, wrapy=WRAP360)
+    assert len(_pieces(patch)) == 1
+    patch.set_data([350.0, 370.0])
+    assert len(_pieces(patch)) == 2  # the new values cross the seam
+    assert _arr(_path(patch).vertices)[:, 1].max() <= 360.0
 
 
 def test_wrapped_helpers_reject_bad_arguments() -> None:

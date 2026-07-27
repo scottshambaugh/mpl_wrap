@@ -14,16 +14,18 @@ import matplotlib as mpl
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.axis import Axis
-from matplotlib.collections import LineCollection, PathCollection
+from matplotlib.collections import Collection, LineCollection, PathCollection
 from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
-from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path
 
+from mpl_wrap.artists import WrapFillBetween, WrapStepPatch
 from mpl_wrap.data import (
+    _band_extent,
     _band_vertices,
     _error_bounds,
     _nan_joined_extents,
+    _polyline_path,
     _stairs_polyline,
     _step_polyline,
     _wrap_to_segments,
@@ -52,6 +54,25 @@ _WINDOW_ATTR = "_mpl_wrap_windows"
 
 # Valid step placements, as in ax.step(where=...) and ax.fill_between(step=...).
 _STEP_WHERE = ("pre", "post", "mid")
+
+
+def _window_clip(ax: Axes, artist: Any, wrapx: np.ndarray | None, wrapy: np.ndarray | None) -> None:
+    """Clip an artist to the wrap window(s), a wrapped axis in data, the other full.
+
+    Clipping with a Path (rather than a Rectangle patch) leaves the artist's clip
+    box - the axes box - in place, so a window wider than the current view cannot
+    spill outside the axes.
+    """
+    if wrapx is not None and wrapy is not None:
+        (x0, x1), (y0, y1), transform = wrapx, wrapy, ax.transData
+    elif wrapy is not None:
+        (x0, x1), (y0, y1), transform = (0.0, 1.0), wrapy, ax.get_yaxis_transform()
+    elif wrapx is not None:
+        (x0, x1), (y0, y1), transform = wrapx, (0.0, 1.0), ax.get_xaxis_transform()
+    else:
+        return
+    ring = np.array([[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]], dtype=float)
+    artist.set_clip_path(Path(ring), transform)
 
 
 def _check_step_where(func: str, name: str, value: str) -> None:
@@ -257,50 +278,6 @@ def scatter_wrapped(
     return ax.scatter(*wrap_points(x, y, wrapx=wx, wrapy=wy), *args, **kwargs)
 
 
-def _clip_patch_to_window(
-    ax: Axes,
-    patch: PathPatch,
-    wrapx: np.ndarray | None,
-    wrapy: np.ndarray | None,
-) -> None:
-    """Clip a filled patch to the wrap window(s), a wrapped axis in data, the other full."""
-    if wrapx is not None and wrapy is not None:
-        rect = Rectangle(
-            (wrapx[0], wrapy[0]), wrapx[1] - wrapx[0], wrapy[1] - wrapy[0], transform=ax.transData
-        )
-    elif wrapy is not None:
-        rect = Rectangle(
-            (0.0, wrapy[0]), 1.0, wrapy[1] - wrapy[0], transform=ax.get_yaxis_transform()
-        )
-    elif wrapx is not None:
-        rect = Rectangle(
-            (wrapx[0], 0.0), wrapx[1] - wrapx[0], 1.0, transform=ax.get_xaxis_transform()
-        )
-    else:
-        return
-    patch.set_clip_path(rect)
-
-
-def _add_band_patch(
-    ax: Axes,
-    verts: np.ndarray,
-    codes: np.ndarray,
-    wrapx: np.ndarray | None,
-    wrapy: np.ndarray | None,
-    kwargs: dict[str, Any],
-) -> PathPatch:
-    """Add a tiled band path to the axes as a clipped patch."""
-    kwargs.setdefault("linewidth", 0)
-    patch = PathPatch(Path(verts, codes), **kwargs)
-    patch.set_transform(ax.transData)
-    # Clipped to the window, so keep its huge path out of datalim (add_artist) and
-    # layout (set_in_layout) - both would otherwise walk every tiled vertex.
-    ax.add_artist(patch)
-    _clip_patch_to_window(ax, patch, wrapx, wrapy)
-    patch.set_in_layout(False)
-    return patch
-
-
 def fill_between_wrapped(
     ax: Axes,
     x: Any,
@@ -313,15 +290,16 @@ def fill_between_wrapped(
     wrapx: WrapSpec = None,
     wrapy: WrapSpec = None,
     **kwargs: Any,
-) -> PathPatch:
+) -> WrapFillBetween:
     """Fill between two continuous (unwrapped) series on a wrapped axis.
 
     Mirrors ``ax.fill_between`` with optional ``wrapx`` and/or ``wrapy``
-    (min, max) windows. The band is tiled at every period offset (in x and/or y)
-    into one clipped compound path, so the union fills once with no double alpha,
-    and a band at least a y-period wide fills the whole window as "fully
-    uncertain". The fill is the one helper that clips rather than routing to
-    edges. Datetime data and windows are accepted.
+    (min, max) windows, and returns the same artist type. The band is tiled at
+    every period offset (in x and/or y) into one compound path clipped to the
+    window, so the union fills once with no double alpha, and a band at least a
+    y-period wide fills the whole window as "fully uncertain". The fill is the
+    one helper that clips rather than routing to edges. Datetime data and
+    windows are accepted.
 
     Parameters
     ----------
@@ -342,8 +320,9 @@ def fill_between_wrapped(
         Step the band's edges before wrapping, as in ``ax.fill_between``. None
         (the default) interpolates linearly between samples.
     **kwargs
-        Forwarded to the ``matplotlib.patches.PathPatch`` (color, alpha, ...).
-        ``linewidth`` defaults to 0.
+        Forwarded to the ``FillBetweenPolyCollection`` (color, alpha, ...), as
+        in ``ax.fill_between``. An edge, if drawn, follows the wrapped band -
+        once per period it sweeps.
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
         ``True`` requires the stored window, and ``False`` disables wrapping
@@ -351,10 +330,10 @@ def fill_between_wrapped(
 
     Returns
     -------
-    matplotlib.patches.PathPatch
-        The band artist, added to the axes (excluded from data limits and
-        layout). Note that this is a ``PathPatch`` in ``ax.patches``, where
-        ``ax.fill_between`` returns a collection in ``ax.collections``.
+    mpl_wrap.artists.WrapFillBetween
+        The band artist, a ``FillBetweenPolyCollection`` in ``ax.collections``
+        as from ``ax.fill_between``. Its path is clipped to the window, so its
+        vertices and data limits cover only what is drawn.
     """
     if step is not None:
         _check_step_where("fill_between_wrapped", "step", step)
@@ -363,10 +342,17 @@ def fill_between_wrapped(
     y2 = _to_num(ax.yaxis, y2)
     wx = _resolve_wrap(ax, "x", wrapx)
     wy = _resolve_wrap(ax, "y", wrapy)
-    verts, codes = _band_vertices(
-        x, y1, y2, where=where, interpolate=interpolate, step=step, wrapx=wx, wrapy=wy
+    # Take the next fill colour when none is given, as ax.fill_between does.
+    if not mpl.rcParams["_internal.classic_mode"]:  # type: ignore[index]
+        kwargs = mpl.cbook.normalize_kwargs(kwargs, Collection)
+        if not any(c in kwargs for c in ("color", "facecolor")):
+            kwargs["facecolor"] = ax._get_patches_for_fill.get_next_color()  # type: ignore[attr-defined]
+    band = WrapFillBetween(
+        x, y1, y2, where=where, interpolate=interpolate, step=step, wrapx=wx, wrapy=wy, **kwargs
     )
-    return _add_band_patch(ax, verts, codes, wx, wy, kwargs)
+    ax.add_collection(band)
+    _window_clip(ax, band, wx, wy)
+    return band
 
 
 def step_wrapped(
@@ -424,15 +410,16 @@ def stairs_wrapped(
     wrapx: WrapSpec = None,
     wrapy: WrapSpec = None,
     **kwargs: Any,
-) -> Union[list[Line2D], PathPatch]:
+) -> WrapStepPatch:
     """Draw a continuous (unwrapped) staircase on a wrapped axis.
 
     Mirrors ``ax.stairs`` with optional ``wrapx`` and/or ``wrapy`` (min, max)
-    windows. The staircase is turned into a tread/riser polyline and wrapped, so
-    seam-crossing risers route to the edges. As in ``ax.stairs``, the default
-    ``baseline=0`` drops both ends down to the baseline (pass ``baseline=None``
-    for the bare staircase). For the ``ax.step`` signature (n x-values against n
-    y-values) use `step_wrapped`. Datetime data and windows are accepted.
+    windows, and returns the same artist type. The staircase is turned into a
+    tread/riser polyline and wrapped, so seam-crossing risers route to the
+    edges. As in ``ax.stairs``, the default ``baseline=0`` drops both ends down
+    to the baseline (pass ``baseline=None`` for the bare staircase). For the
+    ``ax.step`` signature (n x-values against n y-values) use `step_wrapped`.
+    Datetime data and windows are accepted.
 
     Parameters
     ----------
@@ -451,8 +438,8 @@ def stairs_wrapped(
         Fill between the staircase and the baseline instead of drawing a line.
         The fill is tiled and clipped exactly as in `fill_between_wrapped`.
     **kwargs
-        Forwarded to ``ax.plot`` (styling, ...), or to the
-        ``matplotlib.patches.PathPatch`` when ``fill=True``.
+        Forwarded to the ``matplotlib.patches.StepPatch`` (edgecolor,
+        facecolor, alpha, ...), as in ``ax.stairs``.
     wrapx, wrapy : (min, max) or False, optional
         Wrap window per axis, defaulting to the window stored by `set_wrap`.
         ``True`` requires the stored window, and ``False`` disables wrapping
@@ -460,44 +447,78 @@ def stairs_wrapped(
 
     Returns
     -------
-    list of matplotlib.lines.Line2D, or matplotlib.patches.PathPatch if ``fill``
-        The plotted artists. Note that these are the ``ax.plot`` /
-        `fill_between_wrapped` artists, where ``ax.stairs`` returns a single
-        ``StepPatch``.
+    mpl_wrap.artists.WrapStepPatch
+        The staircase artist, a ``StepPatch`` in ``ax.patches`` as from
+        ``ax.stairs``. ``get_data`` returns the values and edges as passed.
     """
     if orientation not in ("vertical", "horizontal"):
         raise ValueError(
             f"stairs_wrapped() orientation={orientation!r} is not one of "
             f"['vertical', 'horizontal']."
         )
+    if fill and baseline is None:
+        raise ValueError(
+            "stairs_wrapped() cannot fill with baseline=None: pass a baseline "
+            "value or array to fill against."
+        )
     # Vertical puts values on y and edges on x; horizontal swaps the two axes.
     vertical = orientation == "vertical"
     value_axis, edge_axis = (ax.yaxis, ax.xaxis) if vertical else (ax.xaxis, ax.yaxis)
     values = _to_num(value_axis, values)
     edges = np.arange(len(values) + 1, dtype=float) if edges is None else _to_num(edge_axis, edges)
-    base: np.ndarray | None = None if baseline is None else _to_num(value_axis, baseline)
+    base = None if baseline is None else _to_num(value_axis, baseline)
     wx = _resolve_wrap(ax, "x", wrapx)
     wy = _resolve_wrap(ax, "y", wrapy)
-    # Build in "vertical" space (edges along x), then swap back if horizontal.
-    w_edge, w_value = (wx, wy) if vertical else (wy, wx)
 
-    if not fill:
-        step_e, step_v = _stairs_polyline(values, edges, base)
-        line_x, line_y = (step_e, step_v) if vertical else (step_v, step_e)
-        return ax.plot(*wrap_line(line_x, line_y, wrapx=wx, wrapy=wy), **kwargs)
+    # Colour defaults exactly as ax.stairs picks them.
+    color = kwargs.pop("color", None)
+    if color is None:
+        color = ax._get_lines.get_next_color()  # type: ignore[attr-defined]
+    if fill:
+        kwargs.setdefault("linewidth", 0)
+        kwargs.setdefault("facecolor", color)
+    else:
+        kwargs.setdefault("edgecolor", color)
 
-    # Filled: a band between the staircase and the (scalar or stepped) baseline.
-    if base is None:
-        raise ValueError(
-            "stairs_wrapped() cannot fill with baseline=None: pass a baseline "
-            "value or array to fill against."
-        )
-    band_e, band_v = _stairs_polyline(values, edges)
-    band_base = base if base.ndim == 0 else np.repeat(base, 2)
-    verts, codes = _band_vertices(band_e, band_v, band_base, wrapx=w_edge, wrapy=w_value)
-    if not vertical:
-        verts = verts[:, ::-1]
-    return _add_band_patch(ax, verts, codes, wx, wy, kwargs)
+    def build(
+        values: np.ndarray, edges: np.ndarray, base: np.ndarray | None, orientation: str
+    ) -> Path:
+        """Wrap the staircase, built in "vertical" space and swapped if horizontal."""
+        vertical = orientation == "vertical"
+        if not fill:
+            step_e, step_v = _stairs_polyline(values, edges, base)
+            line_x, line_y = (step_e, step_v) if vertical else (step_v, step_e)
+            return _polyline_path(*wrap_line(line_x, line_y, wrapx=wx, wrapy=wy))
+        # Filled: a band between the staircase and the (scalar or stepped) baseline.
+        assert base is not None  # fill=True without a baseline is rejected above
+        band_e, band_v = _stairs_polyline(values, edges)
+        band_base = base if base.ndim == 0 else np.repeat(base, 2)
+        w_edge, w_value = (wx, wy) if vertical else (wy, wx)
+        verts, codes = _band_vertices(band_e, band_v, band_base, wrapx=w_edge, wrapy=w_value)
+        if not vertical:
+            verts = verts[:, ::-1]
+        return Path(verts, codes)
+
+    patch = WrapStepPatch(
+        values, edges, baseline=base, orientation=orientation, fill=fill, build=build, **kwargs
+    )
+    if fill:
+        # The tiled band overshoots the window: clip it, and take the data limits
+        # from what that leaves rather than walking every tiled vertex.
+        ax.add_artist(patch)  # add_patch would walk the whole tiled path
+        _window_clip(ax, patch, wx, wy)
+        verts = np.asarray(patch.get_path().vertices, dtype=float)
+        ax.update_datalim(_band_extent(verts, wx, wy).get_points())
+    else:
+        ax.add_patch(patch)
+    # As in ax.stairs the baseline anchors autoscaling - but only on an unwrapped
+    # axis, since a wrapped baseline is not drawn where its value says.
+    if base is not None and (wy if vertical else wx) is None:
+        low = float(np.min(base))
+        (patch.sticky_edges.y if vertical else patch.sticky_edges.x).append(low)
+        ax.update_datalim([(edges[0], low) if vertical else (low, edges[0])])
+    ax._request_autoscale_view()  # type: ignore[attr-defined]
+    return patch
 
 
 def errorbar_wrapped(
