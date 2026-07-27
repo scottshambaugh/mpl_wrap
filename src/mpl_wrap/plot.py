@@ -570,9 +570,11 @@ def errorbar_wrapped(
     yerr, xerr : array-like, optional
         Symmetric (n,) or asymmetric (2, n) error extents.
     fmt : str, default ""
-        Format string for the data markers. ``"none"`` suppresses them.
+        Format string for the data line and markers. ``"none"`` suppresses them.
     ecolor, elinewidth, capsize
-        Bar and cap styling, as in ``ax.errorbar``.
+        Bar and cap styling, as in ``ax.errorbar``. ``elinewidth`` and
+        ``capsize`` fall back to their rcParams, and ``capsize`` is the cap's
+        half-width, as in ``ax.errorbar``.
     **kwargs
         Forwarded to ``ax.plot`` for the data line/markers.
     wrapx, wrapy : (min, max) or False, optional
@@ -587,36 +589,48 @@ def errorbar_wrapped(
     """
     x, y, wrapx, wrapy = _prepare_xy(ax, x, y, wrapx, wrapy)
     label = kwargs.pop("label", None)
+    kwargs.setdefault("zorder", 2)
 
     # Data line / markers at the wrapped centres ('none' suppresses them, as in
-    # ax.errorbar). Only the container carries the legend label, so the entry
-    # shows once, with the bar-and-marker handle.
+    # ax.errorbar). The line follows the wrapped polyline - so a series that
+    # crosses the seam is routed to the edges rather than jumping - with the
+    # markers pinned to the data points. Only the container carries the legend
+    # label, so the entry shows once, with the bar-and-marker handle.
     data_line: Line2D | None = None
-    if fmt != "none":
-        drawn = ax.plot(*wrap_points(x, y, wrapx=wrapx, wrapy=wrapy), fmt, **kwargs)
+    if fmt.lower() != "none":
+        xs, ys, samples = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy)
+        drawn = _plot_marked(ax, xs, ys, samples, (fmt,), {**kwargs, "label": "_nolegend_"})
         data_line = drawn[0] if drawn else None
+        if data_line is not None:
+            data_line.set_zorder(kwargs["zorder"] + 0.1)  # above the bars, as in ax.errorbar
 
     bar_color = (
         ecolor if ecolor is not None else (data_line.get_color() if data_line is not None else "C0")
     )
+    if elinewidth is None:  # errorbar.elinewidth exists from matplotlib 3.11
+        elinewidth = mpl.rcParams.get("errorbar.elinewidth")  # type: ignore[arg-type]
     bar_lw = elinewidth if elinewidth is not None else mpl.rcParams["lines.linewidth"]
+    if capsize is None:
+        capsize = mpl.rcParams["errorbar.capsize"]
     barlinecols: list[LineCollection] = []
     caplines: list[Line2D] = []
 
     def add_caps(cx: np.ndarray, cy: np.ndarray, marker: str) -> None:
-        if capsize:
+        if capsize > 0:
             (cap,) = ax.plot(
                 *wrap_points(cx, cy, wrapx=wrapx, wrapy=wrapy),
                 linestyle="none",
                 marker=marker,
-                ms=capsize,
+                ms=2.0 * capsize,  # as in ax.errorbar, capsize is the half-width
                 color=bar_color,
+                markeredgecolor=bar_color,
             )
             caplines.append(cap)
 
+    # x errors first, so the container's bars and caps come in ax.errorbar's order.
     for error, positions, values, horizontal, cap_marker in (
-        (yerr, x, y, False, "_"),
         (xerr, y, x, True, "|"),
+        (yerr, x, y, False, "_"),
     ):
         if error is None:
             continue

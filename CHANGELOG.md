@@ -40,6 +40,14 @@
   inserts vertices, and `step_wrapped` expands treads and risers; markers used to
   land on those too. Matplotlib likewise draws markers at the data points rather
   than at the vertices a drawstyle adds.
+* `errorbar_wrapped` matches `ax.errorbar` more closely: caps are the documented
+  size (`capsize` is the half-width), `rcParams["errorbar.capsize"]` and
+  `errorbar.elinewidth` are honoured, x errors come before y errors in the
+  container's bars and caps, and the data line takes the `_nolegend_` label and
+  the zorder just above the bars
+* `errorbar_wrapped`'s data line follows the wrapped polyline rather than folded
+  points, so with the default `fmt=""` it no longer draws a modulus jump at the
+  seam - the artifact the library exists to prevent
 
 ### Removed
 
