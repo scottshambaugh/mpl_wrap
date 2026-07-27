@@ -67,6 +67,8 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `scatter_wrapped(ax, x, y, ...)`         | `ax.scatter`      |
 | `hlines_wrapped(ax, y, xmin, xmax)`      | `ax.hlines`       |
 | `vlines_wrapped(ax, x, ymin, ymax)`      | `ax.vlines`       |
+| `axhspan_wrapped(ax, ymin, ymax)`        | `ax.axhspan`      |
+| `axvspan_wrapped(ax, xmin, xmax)`        | `ax.axvspan`      |
 | `fill_between_wrapped(ax, x, y1, y2)`    | `ax.fill_between` |
 | `fill_betweenx_wrapped(ax, y, x1, x2)`   | `ax.fill_betweenx`|
 | `step_wrapped(ax, x, y, where=...)`      | `ax.step`         |
@@ -74,7 +76,8 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `errorbar_wrapped(ax, x, y, yerr, xerr)` | `ax.errorbar`     |
 
 Each returns the same artist type as the method it mirrors, in the same `Axes`
-container.
+container. The two span helpers return a *list* of `Rectangle`, since a band
+across the seam is two rectangles.
 
 Passing `wrapx=False` / `wrapy=False` disables wrapping for a single call (or
 clears the stored window when passed to `set_wrap`), and `wrapx=True` /

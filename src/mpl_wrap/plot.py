@@ -17,6 +17,7 @@ from matplotlib.axis import Axis
 from matplotlib.collections import Collection, LineCollection, PathCollection
 from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 from matplotlib.path import Path
 
 from mpl_wrap.artists import WrapFillBetween, WrapStepPatch
@@ -29,6 +30,7 @@ from mpl_wrap.data import (
     _stairs_polyline,
     _step_polyline_samples,
     _wrap_line_samples,
+    _wrap_span,
     _wrap_to_segments,
     wrap_line,
     wrap_points,
@@ -40,6 +42,8 @@ __all__ = [
     "scatter_wrapped",
     "hlines_wrapped",
     "vlines_wrapped",
+    "axhspan_wrapped",
+    "axvspan_wrapped",
     "fill_between_wrapped",
     "fill_betweenx_wrapped",
     "step_wrapped",
@@ -375,6 +379,109 @@ def vlines_wrapped(
         The lines, as from ``ax.vlines``.
     """
     return _wrapped_lines(ax, False, x, ymin, ymax, colors, linestyles, label, wrapx, wrapy, kwargs)
+
+
+def axhspan_wrapped(
+    ax: Axes,
+    ymin: Any,
+    ymax: Any,
+    xmin: float = 0,
+    xmax: float = 1,
+    *,
+    wrapy: WrapSpec = None,
+    **kwargs: Any,
+) -> list[Rectangle]:
+    """Shade a horizontal band on a wrapped axis, folding it into the window.
+
+    Mirrors ``ax.axhspan`` with an optional ``wrapy`` (min, max) window. The
+    band is folded into the window: one rectangle if it fits, two if it
+    straddles the seam, and the whole window if it spans a period or more.
+    ``xmin`` and ``xmax`` are in axes coordinates, as in ``ax.axhspan``, so only
+    the y window applies. Datetime data and windows are accepted.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    ymin, ymax : float
+        The band's edges, in data coordinates (continuous / unwrapped).
+    xmin, xmax : float, default 0 and 1
+        The band's horizontal extent, in axes coordinates.
+    **kwargs
+        Forwarded to the ``Rectangle``, as in ``ax.axhspan``. Only the first
+        piece of a split band takes a ``label``, so the legend shows one entry.
+    wrapy : (min, max) or False, optional
+        Wrap window, defaulting to the window stored by `set_wrap`. ``True``
+        requires the stored window, and ``False`` disables wrapping.
+
+    Returns
+    -------
+    list of matplotlib.patches.Rectangle
+        The pieces of the band. A list, where ``ax.axhspan`` returns a single
+        ``Rectangle``, because a band across the seam really is two rectangles.
+    """
+    return _wrapped_span(ax, False, ymin, ymax, xmin, xmax, wrapy, kwargs)
+
+
+def axvspan_wrapped(
+    ax: Axes,
+    xmin: Any,
+    xmax: Any,
+    ymin: float = 0,
+    ymax: float = 1,
+    *,
+    wrapx: WrapSpec = None,
+    **kwargs: Any,
+) -> list[Rectangle]:
+    """Shade a vertical band on a wrapped axis, folding it into the window.
+
+    The `axhspan_wrapped` mirror of ``ax.axvspan``: the band spans ``xmin`` to
+    ``xmax`` in data coordinates, folded into the ``wrapx`` window, and ``ymin``
+    and ``ymax`` are in axes coordinates. Datetime data and windows are accepted.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    xmin, xmax : float
+        The band's edges, in data coordinates (continuous / unwrapped).
+    ymin, ymax : float, default 0 and 1
+        The band's vertical extent, in axes coordinates.
+    **kwargs
+        Forwarded to the ``Rectangle``, as in ``ax.axvspan``. Only the first
+        piece of a split band takes a ``label``.
+    wrapx : (min, max) or False, optional
+        Wrap window, defaulting to the window stored by `set_wrap`. ``True``
+        requires the stored window, and ``False`` disables wrapping.
+
+    Returns
+    -------
+    list of matplotlib.patches.Rectangle
+        The pieces of the band, where ``ax.axvspan`` returns a single ``Rectangle``.
+    """
+    return _wrapped_span(ax, True, xmin, xmax, ymin, ymax, wrapx, kwargs)
+
+
+def _wrapped_span(
+    ax: Axes,
+    vertical: bool,
+    lo: Any,
+    hi: Any,
+    start: float,
+    end: float,
+    wrap: WrapSpec,
+    kwargs: dict[str, Any],
+) -> list[Rectangle]:
+    """Fold a span into the window and draw its piece(s) with ax.axhspan / ax.axvspan."""
+    name = "x" if vertical else "y"
+    axis = ax.xaxis if vertical else ax.yaxis
+    bounds = _to_num(axis, [lo, hi])
+    draw = ax.axvspan if vertical else ax.axhspan
+    label = kwargs.pop("label", None)
+    pieces = _wrap_span(float(bounds[0]), float(bounds[1]), _resolve_wrap(ax, name, wrap))
+    # Only the first piece is labelled, so a split band shows one legend entry.
+    labels = [label if label is not None else "_nolegend_", *["_nolegend_"] * (len(pieces) - 1)]
+    return [draw(a, b, start, end, label=lab, **kwargs) for (a, b), lab in zip(pieces, labels)]
 
 
 def _per_piece(style: Any, counts: np.ndarray) -> Any:

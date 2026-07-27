@@ -174,6 +174,24 @@ def wrap_points(
     return _wrap_points(x, wx), _wrap_points(y, wy)
 
 
+def _wrap_span(lo: float, hi: float, wrap: np.ndarray | None) -> list[tuple[float, float]]:
+    """Fold an interval into the window, splitting it at the seam.
+
+    Gives the whole window for a span of a period or more, one interval for a
+    span that fits inside, and two for one that straddles the seam.
+    """
+    lo, hi = min(lo, hi), max(lo, hi)
+    if wrap is None:
+        return [(lo, hi)]
+    w0, w1 = float(wrap[0]), float(wrap[1])
+    period = w1 - w0
+    if hi - lo >= period:
+        return [(w0, w1)]
+    start = (lo - w0) % period + w0
+    end = start + (hi - lo)
+    return [(start, end)] if end <= w1 else [(start, w1), (w0, end - period)]
+
+
 def _step_polyline(x: np.ndarray, *ys: np.ndarray, where: str) -> tuple[np.ndarray, ...]:
     """Expand a step series into the tread/riser polyline that ``ax.step`` draws.
 

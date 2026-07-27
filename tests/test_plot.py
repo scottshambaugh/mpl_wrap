@@ -5,11 +5,13 @@ import numpy as np
 import pytest
 from matplotlib.collections import FillBetweenPolyCollection, LineCollection
 from matplotlib.container import ErrorbarContainer
-from matplotlib.patches import StepPatch
+from matplotlib.patches import Rectangle, StepPatch
 from matplotlib.path import Path
 
 import mpl_wrap
 from mpl_wrap import (
+    axhspan_wrapped,
+    axvspan_wrapped,
     errorbar_wrapped,
     fill_between_wrapped,
     fill_betweenx_wrapped,
@@ -44,6 +46,8 @@ def test_public_api() -> None:
         "fill_betweenx_wrapped",
         "hlines_wrapped",
         "vlines_wrapped",
+        "axhspan_wrapped",
+        "axvspan_wrapped",
         "step_wrapped",
         "stairs_wrapped",
         "errorbar_wrapped",
@@ -313,6 +317,41 @@ def test_wrapped_lines_expand_per_line_styles() -> None:
     assert len(lc.get_segments()) == 3
     first, second, third = _arr(lc.get_color())
     assert np.allclose(first, second) and not np.allclose(first, third)
+
+
+# axhspan_wrapped / axvspan_wrapped
+
+
+def test_axhspan_wrapped_matches_mpl_unwrapped() -> None:
+    _, ax = plt.subplots()
+    ref = ax.axhspan(1.0, 2.0, 0.1, 0.9, color="C2", alpha=0.3)
+    (got,) = axhspan_wrapped(ax, 1.0, 2.0, 0.1, 0.9, color="C2", alpha=0.3)
+    assert isinstance(got, Rectangle)
+    assert got in ax.patches
+    assert np.allclose(_arr(ref.get_bbox().extents), _arr(got.get_bbox().extents))
+    assert got.get_transform() == ref.get_transform()
+
+
+def test_axhspan_wrapped_folds_into_the_window() -> None:
+    _, ax = plt.subplots()
+    # Straddling the seam gives one rectangle per side
+    straddle = axhspan_wrapped(ax, 350.0, 370.0, wrapy=WRAP360, label="sector")
+    assert [(p.get_bbox().y0, p.get_bbox().y1) for p in straddle] == [(350.0, 360.0), (0.0, 10.0)]
+    # Only the first piece is labelled, so the legend shows one entry
+    assert [p.get_label() for p in straddle] == ["sector", "_nolegend_"]
+    # A span of a period or more fills the window, and one that fits is folded whole
+    assert [
+        (p.get_bbox().y0, p.get_bbox().y1) for p in axhspan_wrapped(ax, 100.0, 900.0, wrapy=WRAP360)
+    ] == [(0.0, 360.0)]
+    assert [
+        (p.get_bbox().y0, p.get_bbox().y1) for p in axhspan_wrapped(ax, 370.0, 380.0, wrapy=WRAP360)
+    ] == [(10.0, 20.0)]
+
+
+def test_axvspan_wrapped_is_the_mirror() -> None:
+    _, ax = plt.subplots()
+    pieces = axvspan_wrapped(ax, 350.0, 370.0, wrapx=WRAP360)
+    assert [(p.get_bbox().x0, p.get_bbox().x1) for p in pieces] == [(350.0, 360.0), (0.0, 10.0)]
 
 
 # fill_betweenx_wrapped

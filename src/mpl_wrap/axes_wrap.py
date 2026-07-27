@@ -14,6 +14,7 @@ from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 from matplotlib.projections import register_projection
 
 from mpl_wrap import data as _data
@@ -59,6 +60,14 @@ class AxesWrapBase(Axes):
     def vlines_wrapped(self, *args: Any, **kwargs: Any) -> LineCollection:
         """Vertical lines split at the seam. See `mpl_wrap.vlines_wrapped`."""
         return _plot.vlines_wrapped(self, *args, **kwargs)
+
+    def axhspan_wrapped(self, *args: Any, **kwargs: Any) -> list[Rectangle]:
+        """Horizontal band folded into the window. See `mpl_wrap.axhspan_wrapped`."""
+        return _plot.axhspan_wrapped(self, *args, **kwargs)
+
+    def axvspan_wrapped(self, *args: Any, **kwargs: Any) -> list[Rectangle]:
+        """Vertical band folded into the window. See `mpl_wrap.axvspan_wrapped`."""
+        return _plot.axvspan_wrapped(self, *args, **kwargs)
 
     def fill_between_wrapped(self, *args: Any, **kwargs: Any) -> WrapFillBetween:
         """Fill a band wrapped into the window. See `mpl_wrap.fill_between_wrapped`."""

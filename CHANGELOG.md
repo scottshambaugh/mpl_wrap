@@ -9,6 +9,9 @@
 ### Added
 * `py.typed` marker (PEP 561), so the annotations are visible to type checkers
   in downstream projects
+* `axhspan_wrapped` and `axvspan_wrapped`, mirroring `ax.axhspan` / `ax.axvspan`:
+  the band is folded into the window, splitting into two rectangles when it
+  straddles the seam and filling the window when it spans a period or more
 * `hlines_wrapped` and `vlines_wrapped`, mirroring `ax.hlines` / `ax.vlines`: a
   span crossing the seam is split so it shows at both edges, and one at least a
   period long sweeps the window
