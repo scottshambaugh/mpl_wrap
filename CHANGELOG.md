@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 ### Added
+* `py.typed` marker (PEP 561), so the annotations are visible to type checkers
+  in downstream projects
 ### Changed
 ### Removed
 
