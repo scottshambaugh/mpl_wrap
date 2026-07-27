@@ -8,7 +8,7 @@ on an axes so subsequent calls pick it up automatically.
 """
 
 from collections.abc import Iterable
-from typing import Any, Union, overload
+from typing import Any, Literal, Union, overload
 
 import matplotlib as mpl
 import numpy as np
@@ -39,6 +39,7 @@ __all__ = [
     "plot_wrapped",
     "scatter_wrapped",
     "fill_between_wrapped",
+    "fill_betweenx_wrapped",
     "step_wrapped",
     "stairs_wrapped",
     "errorbar_wrapped",
@@ -349,11 +350,81 @@ def fill_between_wrapped(
         as from ``ax.fill_between``. Its path is clipped to the window, so its
         vertices and data limits cover only what is drawn.
     """
+    return _fill_band(
+        ax, "x", x, y1, y2, where, interpolate, step, wrapx, wrapy, "fill_between_wrapped", kwargs
+    )
+
+
+def fill_betweenx_wrapped(
+    ax: Axes,
+    y: Any,
+    x1: Any,
+    x2: Any = 0,
+    where: Any = None,
+    interpolate: bool = False,
+    step: str | None = None,
+    *,
+    wrapx: WrapSpec = None,
+    wrapy: WrapSpec = None,
+    **kwargs: Any,
+) -> WrapFillBetween:
+    """Fill between two continuous (unwrapped) series on a wrapped axis, along y.
+
+    The `fill_between_wrapped` mirror of ``ax.fill_betweenx``: the band runs
+    along y, bounded by ``x1`` and ``x2``, and is wrapped into the ``wrapx``
+    and/or ``wrapy`` (min, max) windows the same way. Datetime data and windows
+    are accepted.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    y : array-like
+        Continuous (unwrapped) y coordinates.
+    x1, x2 : array-like or float
+        The band edges (continuous / unwrapped), in either order. ``x2``
+        defaults to 0.
+    where, interpolate, step
+        As in `fill_between_wrapped`, along y.
+    **kwargs
+        Forwarded to the ``FillBetweenPolyCollection``, as in ``ax.fill_betweenx``.
+    wrapx, wrapy : (min, max) or False, optional
+        Wrap window per axis, defaulting to the window stored by `set_wrap`.
+        ``True`` requires the stored window, and ``False`` disables wrapping
+        for this call.
+
+    Returns
+    -------
+    mpl_wrap.artists.WrapFillBetween
+        The band artist, a ``FillBetweenPolyCollection`` in ``ax.collections``
+        as from ``ax.fill_betweenx``.
+    """
+    return _fill_band(
+        ax, "y", y, x1, x2, where, interpolate, step, wrapx, wrapy, "fill_betweenx_wrapped", kwargs
+    )
+
+
+def _fill_band(
+    ax: Axes,
+    t_direction: Literal["x", "y"],
+    t: Any,
+    f1: Any,
+    f2: Any,
+    where: Any,
+    interpolate: bool,
+    step: str | None,
+    wrapx: WrapSpec,
+    wrapy: WrapSpec,
+    func: str,
+    kwargs: dict[str, Any],
+) -> WrapFillBetween:
+    """Add a wrapped band running along ``t_direction`` ("x" or "y")."""
     if step is not None:
-        _check_step_where("fill_between_wrapped", "step", step)
-    x = _to_num(ax.xaxis, x)
-    y1 = _to_num(ax.yaxis, y1)
-    y2 = _to_num(ax.yaxis, y2)
+        _check_step_where(func, "step", step)
+    t_axis, f_axis = (ax.xaxis, ax.yaxis) if t_direction == "x" else (ax.yaxis, ax.xaxis)
+    t = _to_num(t_axis, t)
+    f1 = _to_num(f_axis, f1)
+    f2 = _to_num(f_axis, f2)
     wx = _resolve_wrap(ax, "x", wrapx)
     wy = _resolve_wrap(ax, "y", wrapy)
     # Take the next fill colour when none is given, as ax.fill_between does.
@@ -362,7 +433,16 @@ def fill_between_wrapped(
         if not any(c in kwargs for c in ("color", "facecolor")):
             kwargs["facecolor"] = ax._get_patches_for_fill.get_next_color()  # type: ignore[attr-defined]
     band = WrapFillBetween(
-        x, y1, y2, where=where, interpolate=interpolate, step=step, wrapx=wx, wrapy=wy, **kwargs
+        t_direction,
+        t,
+        f1,
+        f2,
+        where=where,
+        interpolate=interpolate,
+        step=step,
+        wrapx=wx,
+        wrapy=wy,
+        **kwargs,
     )
     ax.add_collection(band)
     _window_clip(ax, band, wx, wy)

@@ -12,6 +12,7 @@ import mpl_wrap
 from mpl_wrap import (
     errorbar_wrapped,
     fill_between_wrapped,
+    fill_betweenx_wrapped,
     plot_wrapped,
     scatter_wrapped,
     set_wrap,
@@ -39,6 +40,7 @@ def test_public_api() -> None:
         "plot_wrapped",
         "scatter_wrapped",
         "fill_between_wrapped",
+        "fill_betweenx_wrapped",
         "step_wrapped",
         "stairs_wrapped",
         "errorbar_wrapped",
@@ -266,6 +268,47 @@ def test_fill_between_no_window_single_tile() -> None:
     patch = fill_between_wrapped(ax, x, np.zeros(5), np.ones(5))
     assert len(_pieces(patch)) == 1
     assert len(_arr(_path(patch).vertices)) == 2 * len(x) + 1  # + the CLOSEPOLY vertex
+
+
+# fill_betweenx_wrapped
+
+
+def test_fill_betweenx_wrapped_is_the_transpose_of_fill_between() -> None:
+    _, ax = plt.subplots()
+    t = np.array([0.0, 1.0])
+    band = fill_betweenx_wrapped(ax, t, [350.0, 350.0], [370.0, 370.0], wrapx=WRAP360)
+    assert isinstance(band, FillBetweenPolyCollection)
+    assert band in ax.collections
+    # The band runs along y and wraps on x: it shows at both edges, not between
+    assert _covers(band, 355.0, 0.5) and _covers(band, 5.0, 0.5)
+    assert not _covers(band, 180.0, 0.5)
+    # Same geometry as fill_between_wrapped with the axes swapped
+    _, ax2 = plt.subplots()
+    ref = fill_between_wrapped(ax2, t, [350.0, 350.0], [370.0, 370.0], wrapy=WRAP360)
+    assert np.allclose(
+        np.sort(_arr(_path(band).vertices)[:, ::-1], axis=0),
+        np.sort(_arr(_path(ref).vertices), axis=0),
+    )
+
+
+def test_fill_betweenx_wrapped_matches_mpl_unwrapped() -> None:
+    _, ax = plt.subplots()
+    y = np.linspace(0.0, 10.0, 21)
+    x1, x2 = np.sin(y), np.cos(y)
+    cases: tuple[tuple[Any, bool, Any], ...] = (
+        (None, False, None),
+        (x1 > x2, True, None),
+        (None, False, "post"),
+    )
+    for where, interpolate, step in cases:
+        ref = ax.fill_betweenx(y, x1, x2, where=where, interpolate=interpolate, step=step)
+        band = fill_betweenx_wrapped(ax, y, x1, x2, where=where, interpolate=interpolate, step=step)
+        ref_polys = [_arr(p.vertices) for p in ref.get_paths()]
+        assert len(_pieces(band)) == len(ref_polys)
+        assert np.allclose(
+            np.unique(np.round(_arr(_path(band).vertices), 9), axis=0),
+            np.unique(np.round(np.concatenate(ref_polys), 9), axis=0),
+        )
 
 
 # step_wrapped

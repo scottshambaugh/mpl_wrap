@@ -7,7 +7,7 @@ the straight one. Setting new data on either re-wraps it.
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from matplotlib.collections import FillBetweenPolyCollection
@@ -23,23 +23,28 @@ __all__ = [
 
 
 class WrapFillBetween(FillBetweenPolyCollection):
-    """The ``ax.fill_between`` collection, holding a wrapped band.
+    """The ``ax.fill_between`` / ``ax.fill_betweenx`` collection, holding a wrapped band.
 
     The band is tiled at every period offset and held as one compound path, so
     the union of the tiles fills once with no double alpha, and the artist is
     clipped to the window when it is added to the axes. Wrapping is baked in:
     ``set_data`` re-wraps into the same window(s), fixed at construction.
+
+    ``t_direction`` is the axis the band runs along - "x" for ``fill_between``,
+    "y" for ``fill_betweenx`` - as in ``FillBetweenPolyCollection``.
     """
 
     # Set by FillBetweenPolyCollection.__init__, but absent from its type stubs.
     _interpolate: bool
     _step: str | None
+    t_direction: Literal["x", "y"]
 
     def __init__(
         self,
-        x: Any,
-        y1: Any,
-        y2: Any,
+        t_direction: Literal["x", "y"],
+        t: Any,
+        f1: Any,
+        f2: Any,
         *,
         wrapx: np.ndarray | None = None,
         wrapy: np.ndarray | None = None,
@@ -48,10 +53,16 @@ class WrapFillBetween(FillBetweenPolyCollection):
         self._wrapx = wrapx
         self._wrapy = wrapy
         self._band_codes: np.ndarray | None = None
-        super().__init__("x", x, y1, y2, **kwargs)
+        super().__init__(t_direction, t, f1, f2, **kwargs)
 
     def _make_verts(self, t: Any, f1: Any, f2: Any, where: Any) -> list[np.ndarray]:
-        """Build the wrapped band instead of the straight one (called by set_data too)."""
+        """Build the wrapped band instead of the straight one (called by set_data too).
+
+        The band is built with ``t`` along x and swapped afterwards for
+        ``fill_betweenx``, so the tiling only ever works in one direction.
+        """
+        along_x = self.t_direction == "x"
+        wrap_t, wrap_f = (self._wrapx, self._wrapy) if along_x else (self._wrapy, self._wrapx)
         verts, codes = _band_vertices(
             np.asarray(t, dtype=float),
             np.asarray(f1, dtype=float),
@@ -59,9 +70,11 @@ class WrapFillBetween(FillBetweenPolyCollection):
             where=where,
             interpolate=self._interpolate,
             step=self._step,
-            wrapx=self._wrapx,
-            wrapy=self._wrapy,
+            wrapx=wrap_t,
+            wrapy=wrap_f,
         )
+        if not along_x:
+            verts = verts[:, ::-1]
         self._band_codes = codes
         # The tiles overshoot the window; only their intersection with it is drawn.
         self._bbox = _band_extent(verts, self._wrapx, self._wrapy)

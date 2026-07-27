@@ -56,6 +56,10 @@ class AxesWrapBase(Axes):
         """Fill a band wrapped into the window. See `mpl_wrap.fill_between_wrapped`."""
         return _plot.fill_between_wrapped(self, *args, **kwargs)
 
+    def fill_betweenx_wrapped(self, *args: Any, **kwargs: Any) -> WrapFillBetween:
+        """Fill a band along y, wrapped into the window. See `mpl_wrap.fill_betweenx_wrapped`."""
+        return _plot.fill_betweenx_wrapped(self, *args, **kwargs)
+
     def step_wrapped(self, *args: Any, **kwargs: Any) -> list[Line2D]:
         """Step plot wrapped into the window. See `mpl_wrap.step_wrapped`."""
         return _plot.step_wrapped(self, *args, **kwargs)
