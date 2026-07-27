@@ -284,6 +284,23 @@ def _period_and_offsets(wrapy: np.ndarray, *ys: np.ndarray) -> tuple[float, rang
     return period, range(m_min, m_max + 1)
 
 
+def _band_ring(x: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """The band as one closed ring: out along lo, back along hi."""
+    return np.column_stack([np.concatenate([x, x[::-1]]), np.concatenate([lo, hi[::-1]])])
+
+
+def _tile(ring: np.ndarray, offsets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Repeat a ring at every (dx, dy) offset as one MOVETO-separated path.
+
+    Broadcast rather than looped per offset, so a fast angle needing thousands
+    of tiles is built in one shot.
+    """
+    verts = (ring[None, :, :] - offsets[:, None, :]).reshape(-1, 2)
+    codes = np.full(len(verts), Path.LINETO, dtype=np.uint8)
+    codes[:: len(ring)] = Path.MOVETO
+    return verts, codes
+
+
 def _tiled_band_vertices(
     x: np.ndarray,
     lo: np.ndarray,
@@ -291,27 +308,15 @@ def _tiled_band_vertices(
     wrapx: np.ndarray | None,
     wrapy: np.ndarray | None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Tile the band at every (x, y) period offset into one path (vectorized).
-
-    Built with numpy broadcasting rather than a nested per-offset Python loop, so
-    a fast angle needing thousands of tiles is built in one shot.
-    """
+    """Tile the band at every (x, y) period offset into one path."""
     px = 0.0 if wrapx is None else wrapx[1] - wrapx[0]
     py = 0.0 if wrapy is None else wrapy[1] - wrapy[0]
-    x_offsets = range(1) if wrapx is None else _period_and_offsets(wrapx, x)[1]
-    y_offsets = range(1) if wrapy is None else _period_and_offsets(wrapy, lo, hi)[1]
-    my = np.fromiter(y_offsets, dtype=float)
-    nx = np.fromiter(x_offsets, dtype=float)
-    m_flat = np.repeat(my, len(nx))
-    n_flat = np.tile(nx, len(my))
-    tile_len = 2 * len(x)
-    x_tile = np.concatenate([x, x[::-1]])
-    y_tile = np.concatenate([lo, hi[::-1]])
-    x_all = (x_tile[None, :] - n_flat[:, None] * px).ravel()
-    y_all = (y_tile[None, :] - m_flat[:, None] * py).ravel()
-    codes = np.full(len(m_flat) * tile_len, Path.LINETO, dtype=np.uint8)
-    codes[::tile_len] = Path.MOVETO
-    return _closed_subpaths(np.column_stack([x_all, y_all]), codes)
+    nx = np.fromiter(range(1) if wrapx is None else _period_and_offsets(wrapx, x)[1], dtype=float)
+    my = np.fromiter(
+        range(1) if wrapy is None else _period_and_offsets(wrapy, lo, hi)[1], dtype=float
+    )
+    offsets = np.column_stack([np.tile(nx, len(my)) * px, np.repeat(my, len(nx)) * py])
+    return _closed_subpaths(*_tile(_band_ring(x, lo, hi), offsets))
 
 
 def _saturated_band_vertices(
@@ -325,12 +330,13 @@ def _saturated_band_vertices(
     This avoids building the thousands of window-spanning tiles a fast, mostly
     saturated angle would otherwise need.
 
-    The rectangle runs a period past the window on each side, so that an edge,
-    if stroked, is clipped away: a saturated stretch is covered everywhere, so
-    it has no boundary to draw. Where two pieces meet, the join is not a band
-    edge either, so each piece is left open along the side it shares - filling
-    closes a subpath implicitly, stroking does not - and the piece is traced
-    from that side so the open edge falls there.
+    The rectangle runs a period past the window on each side, so a stroked edge
+    is clipped away. A saturated stretch is covered everywhere and has no
+    boundary to draw. A join between two pieces is not a band edge either, so
+    each piece is left open along the side it shares, which filling closes
+    implicitly and stroking skips. Rings are rolled, never reversed, to put that
+    open edge on the shared side, since an opposite-wound piece would cancel
+    against its neighbour.
     """
     y0, y1 = wrapy
     period = y1 - y0
@@ -339,20 +345,17 @@ def _saturated_band_vertices(
     n = len(x)
     bounds = np.concatenate([[0], np.nonzero(np.diff(full))[0] + 1, [n]])
     for start, stop in zip(bounds[:-1], bounds[1:]):
-        # An edge shared with the neighbouring piece is a join, not a band edge.
         open_left, open_right = start > 0, stop < n
+        share_right = open_right and not open_left
         if full[start]:
             xa, xb = x[start], x[stop - 1]
-            ya, yb = y0 - period, y1 + period
-            # Rolled (not reversed) to move the open edge: reversing would flip the
-            # winding, and an opposite-wound piece cancels where it meets its neighbour.
-            rect = np.array([[xa, ya], [xb, ya], [xb, yb], [xa, yb]])
-            verts.append(np.roll(rect, -2, axis=0) if open_right and not open_left else rect)
-            codes.append(np.array([Path.MOVETO, *[Path.LINETO] * 3], dtype=np.uint8))
+            ring = np.array(
+                [[xa, y0 - period], [xb, y0 - period], [xb, y1 + period], [xa, y1 + period]]
+            )
+            offsets = np.zeros((1, 2))
         else:
-            # Extend each narrow run by one sample into the adjacent saturated region
-            # so its tiles bridge the transition and abut the rectangle (they meet at
-            # the boundary x-line, so no gap and no overlapping-alpha).
+            # Each narrow run reaches one sample into the neighbouring saturated
+            # region, so its tiles abut the rectangle with no gap.
             sl = slice(max(int(start) - 1, 0), min(int(stop - 1) + 1, n - 1) + 1)
             lo_r, hi_r, x_r = lo[sl], hi[sl], x[sl]
             m = np.arange(
@@ -360,19 +363,13 @@ def _saturated_band_vertices(
                 int(np.ceil((hi_r.max() - y0) / period)) + 1,
                 dtype=float,
             )
-            # The ring closes along its left cap; rolling its start by one side's
-            # worth of samples moves that open edge to the right cap instead.
-            x_ring = np.concatenate([x_r, x_r[::-1]])
-            y_ring = np.concatenate([lo_r, hi_r[::-1]])
-            if open_right and not open_left:
-                x_ring, y_ring = np.roll(x_ring, -len(x_r)), np.roll(y_ring, -len(x_r))
-            tile_len = 2 * len(x_r)
-            x_tile = np.tile(x_ring, len(m))
-            y_tile = (y_ring[None, :] - m[:, None] * period).ravel()
-            verts.append(np.column_stack([x_tile, y_tile]))
-            c = np.full(len(m) * tile_len, Path.LINETO, dtype=np.uint8)
-            c[::tile_len] = Path.MOVETO
-            codes.append(c)
+            ring = _band_ring(x_r, lo_r, hi_r)
+            offsets = np.column_stack([np.zeros(len(m)), m * period])
+        if share_right:
+            ring = np.roll(ring, -len(ring) // 2, axis=0)
+        v, c = _tile(ring, offsets)
+        verts.append(v)
+        codes.append(c)
         if not (open_left or open_right):  # both caps are real: close it, as ax.fill_between does
             verts[-1], codes[-1] = _closed_subpaths(verts[-1], codes[-1])
     if not verts:
@@ -502,8 +499,8 @@ def _band_extent(verts: np.ndarray, wrapx: np.ndarray | None, wrapy: np.ndarray 
     """The extent a tiled band actually covers: the window where wrapped, its own where not.
 
     The tiling deliberately overshoots the window, so the raw vertices span many
-    periods; what is drawn is the intersection with the window. A band narrower
-    than the period leaves gaps inside the window, which this does not subtract.
+    periods, and what is drawn is the intersection with the window. A band
+    narrower than the period leaves gaps inside, which this does not subtract.
     """
     if len(verts) == 0:
         return Bbox.null()

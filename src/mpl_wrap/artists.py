@@ -30,8 +30,8 @@ class WrapFillBetween(FillBetweenPolyCollection):
     clipped to the window when it is added to the axes. Wrapping is baked in:
     ``set_data`` re-wraps into the same window(s), fixed at construction.
 
-    ``t_direction`` is the axis the band runs along - "x" for ``fill_between``,
-    "y" for ``fill_betweenx`` - as in ``FillBetweenPolyCollection``.
+    ``t_direction`` is the axis the band runs along, "x" for ``fill_between`` and
+    "y" for ``fill_betweenx``, as in ``FillBetweenPolyCollection``.
     """
 
     # Set by FillBetweenPolyCollection.__init__, but absent from its type stubs.
@@ -58,8 +58,8 @@ class WrapFillBetween(FillBetweenPolyCollection):
     def _make_verts(self, t: Any, f1: Any, f2: Any, where: Any) -> list[np.ndarray]:
         """Build the wrapped band instead of the straight one (called by set_data too).
 
-        The band is built with ``t`` along x and swapped afterwards for
-        ``fill_betweenx``, so the tiling only ever works in one direction.
+        Built with ``t`` along x and swapped for ``fill_betweenx``, so the tiling
+        only ever works in one direction.
         """
         along_x = self.t_direction == "x"
         wrap_t, wrap_f = (self._wrapx, self._wrapy) if along_x else (self._wrapy, self._wrapx)
@@ -76,7 +76,7 @@ class WrapFillBetween(FillBetweenPolyCollection):
         if not along_x:
             verts = verts[:, ::-1]
         self._band_codes = codes
-        # The tiles overshoot the window; only their intersection with it is drawn.
+        # The tiles overshoot the window. Only their intersection is drawn.
         self._bbox = _band_extent(verts, self._wrapx, self._wrapy)
         return [verts]
 

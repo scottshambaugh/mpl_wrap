@@ -67,9 +67,8 @@ _STEP_WHERE = ("pre", "post", "mid")
 def _window_clip(ax: Axes, artist: Any, wrapx: np.ndarray | None, wrapy: np.ndarray | None) -> None:
     """Clip an artist to the wrap window(s), a wrapped axis in data, the other full.
 
-    Clipping with a Path (rather than a Rectangle patch) leaves the artist's clip
-    box - the axes box - in place, so a window wider than the current view cannot
-    spill outside the axes.
+    Clipping with a Path rather than a Rectangle patch leaves the artist's clip
+    box in place, so a window wider than the view cannot spill outside the axes.
     """
     if wrapx is not None and wrapy is not None:
         (x0, x1), (y0, y1), transform = wrapx, wrapy, ax.transData
@@ -88,7 +87,7 @@ def _plot_marked(
 ) -> list[Line2D]:
     """Plot a wrapped polyline, keeping markers on the data points.
 
-    Seam routing (and step expansion) insert vertices that are not data points;
+    Seam routing and step expansion insert vertices that are not data points.
     markevery pins the markers to the samples, as matplotlib does for drawstyles.
     """
     if len(samples) != len(xs):
@@ -141,15 +140,18 @@ def _resolve_wrap(ax: Axes, name: str, wrap: WrapSpec) -> np.ndarray | None:
     return stored.get(name)
 
 
+def _windows(
+    ax: Axes, wrapx: WrapSpec, wrapy: WrapSpec
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Resolve both wrap specs against the axes."""
+    return _resolve_wrap(ax, "x", wrapx), _resolve_wrap(ax, "y", wrapy)
+
+
 def _prepare_xy(
     ax: Axes, x: Any, y: Any, wrapx: WrapSpec, wrapy: WrapSpec
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
     """Convert x/y data to numeric arrays and resolve their wrap windows."""
-    x_num = _to_num(ax.xaxis, x)
-    y_num = _to_num(ax.yaxis, y)
-    wx = _resolve_wrap(ax, "x", wrapx)
-    wy = _resolve_wrap(ax, "y", wrapy)
-    return x_num, y_num, wx, wy
+    return (_to_num(ax.xaxis, x), _to_num(ax.yaxis, y), *_windows(ax, wrapx, wrapy))
 
 
 def set_wrap(
@@ -306,7 +308,7 @@ def hlines_wrapped(
 
     Mirrors ``ax.hlines`` with optional ``wrapx`` and/or ``wrapy`` (min, max)
     windows, and returns the same artist. A span crossing an x seam is split so
-    it shows at both edges, and one at least an x-period long sweeps the window;
+    it shows at both edges, and one at least an x-period long sweeps the window.
     ``y`` is folded into the y window. Datetime data and windows are accepted.
 
     Parameters
@@ -487,8 +489,8 @@ def _wrapped_span(
 def _per_piece(style: Any, counts: np.ndarray) -> Any:
     """Repeat a per-line style over the pieces each line was split into.
 
-    A list is taken to be one entry per line; anything else (a colour, a
-    linestyle string, a dash tuple) applies to all of them, as in ``ax.hlines``.
+    A list is one entry per line. Anything else (a colour, a linestyle string, a
+    dash tuple) applies to every line, as in ``ax.hlines``.
     """
     if not isinstance(style, list) or len(style) != len(counts):
         return style
@@ -513,8 +515,7 @@ def _wrapped_lines(
     pos = _to_num(pos_axis, pos)
     lo = _to_num(span_axis, lo)
     hi = _to_num(span_axis, hi)
-    wx = _resolve_wrap(ax, "x", wrapx)
-    wy = _resolve_wrap(ax, "y", wrapy)
+    wx, wy = _windows(ax, wrapx, wrapy)
     pos, lo, hi = np.broadcast_arrays(np.atleast_1d(pos), np.atleast_1d(lo), np.atleast_1d(hi))
 
     positions: list[float] = []
@@ -577,7 +578,7 @@ def fill_between_wrapped(
         defaults to 0.
     where : array-like of bool, optional
         Fill only where True, as in ``ax.fill_between``. The band is drawn once
-        per contiguous run; non-finite samples break runs too.
+        per contiguous run, and non-finite samples break runs too.
     interpolate : bool, default False
         Extend each run to the interpolated point where ``y1`` and ``y2``
         actually cross, as in ``ax.fill_between``.
@@ -675,8 +676,7 @@ def _fill_band(
     t = _to_num(t_axis, t)
     f1 = _to_num(f_axis, f1)
     f2 = _to_num(f_axis, f2)
-    wx = _resolve_wrap(ax, "x", wrapx)
-    wy = _resolve_wrap(ax, "y", wrapy)
+    wx, wy = _windows(ax, wrapx, wrapy)
     # Take the next fill colour when none is given, as ax.fill_between does.
     if not mpl.rcParams["_internal.classic_mode"]:  # type: ignore[index]
         kwargs = mpl.cbook.normalize_kwargs(kwargs, Collection)
@@ -806,14 +806,13 @@ def stairs_wrapped(
             "stairs_wrapped() cannot fill with baseline=None: pass a baseline "
             "value or array to fill against."
         )
-    # Vertical puts values on y and edges on x; horizontal swaps the two axes.
+    # Vertical puts values on y and edges on x, horizontal swaps them.
     vertical = orientation == "vertical"
     value_axis, edge_axis = (ax.yaxis, ax.xaxis) if vertical else (ax.xaxis, ax.yaxis)
     values = _to_num(value_axis, values)
     edges = np.arange(len(values) + 1, dtype=float) if edges is None else _to_num(edge_axis, edges)
     base = None if baseline is None else _to_num(value_axis, baseline)
-    wx = _resolve_wrap(ax, "x", wrapx)
-    wy = _resolve_wrap(ax, "y", wrapy)
+    wx, wy = _windows(ax, wrapx, wrapy)
 
     # Colour defaults exactly as ax.stairs picks them.
     color = kwargs.pop("color", None)
@@ -848,16 +847,15 @@ def stairs_wrapped(
         values, edges, baseline=base, orientation=orientation, fill=fill, build=build, **kwargs
     )
     if fill:
-        # The tiled band overshoots the window: clip it, and take the data limits
-        # from what that leaves rather than walking every tiled vertex.
-        ax.add_artist(patch)  # add_patch would walk the whole tiled path
+        # add_patch would walk every tiled vertex, so add it and set the limits here.
+        ax.add_artist(patch)
         _window_clip(ax, patch, wx, wy)
         verts = np.asarray(patch.get_path().vertices, dtype=float)
         ax.update_datalim(_band_extent(verts, wx, wy).get_points())
     else:
         ax.add_patch(patch)
-    # As in ax.stairs the baseline anchors autoscaling - but only on an unwrapped
-    # axis, since a wrapped baseline is not drawn where its value says.
+    # The baseline anchors autoscaling as in ax.stairs, but only on an unwrapped
+    # axis, where it is drawn at its own value.
     if base is not None and (wy if vertical else wx) is None:
         low = float(np.min(base))
         (patch.sticky_edges.y if vertical else patch.sticky_edges.x).append(low)
@@ -921,11 +919,9 @@ def errorbar_wrapped(
     label = kwargs.pop("label", None)
     kwargs.setdefault("zorder", 2)
 
-    # Data line / markers at the wrapped centres ('none' suppresses them, as in
-    # ax.errorbar). The line follows the wrapped polyline - so a series that
-    # crosses the seam is routed to the edges rather than jumping - with the
-    # markers pinned to the data points. Only the container carries the legend
-    # label, so the entry shows once, with the bar-and-marker handle.
+    # The data line follows the wrapped polyline with markers on the data points,
+    # and 'none' suppresses it, as in ax.errorbar. Only the container carries the
+    # label, so the legend shows one bar-and-marker entry.
     data_line: Line2D | None = None
     if fmt.lower() != "none":
         xs, ys, samples = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy)

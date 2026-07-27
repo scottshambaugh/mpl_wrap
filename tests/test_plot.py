@@ -180,7 +180,7 @@ def test_fill_between_mixed_saturation_bridges_runs() -> None:
     x = np.array([0.0, 1.0, 2.0])
     hi = np.array([400.0, 100.0, 400.0])
     band = fill_between_wrapped(ax, x, np.zeros(3), hi, wrapy=WRAP360)
-    # The saturated ends fill the window; the narrow middle covers only its band
+    # The saturated ends fill the window, the narrow middle only its own band
     assert _covers(band, 0.0, 350.0) and _covers(band, 2.0, 350.0)
     assert _covers(band, 1.0, 50.0) and not _covers(band, 1.0, 200.0)
 
@@ -275,7 +275,7 @@ def test_fill_between_no_window_single_tile() -> None:
 # hlines_wrapped / vlines_wrapped
 
 
-def test_hlines_wrapped_matches_mpl_unwrapped() -> None:
+def test_hlines_wrapped_matches_mpl_and_expands_styles() -> None:
     _, ax = plt.subplots()
     kw = {"colors": "C1", "linestyles": "dashed", "label": "a"}
     ref = ax.hlines([1.0, 2.0], [0.0, 1.0], [3.0, 4.0], **kw)  # type: ignore[arg-type]
@@ -284,6 +284,13 @@ def test_hlines_wrapped_matches_mpl_unwrapped() -> None:
     assert got in ax.collections
     assert np.allclose(_arr(ref.get_segments()), _arr(got.get_segments()))
     assert got.get_label() == "a" and np.allclose(ref.get_color(), got.get_color())
+    # The first line splits in two, the second does not: colours follow their line
+    styled = hlines_wrapped(
+        ax, [1.0, 2.0], [350.0, 0.0], [370.0, 1.0], colors=["C0", "C3"], wrapx=WRAP360
+    )
+    first, second, third = _arr(styled.get_color())
+    assert len(styled.get_segments()) == 3
+    assert np.allclose(first, second) and not np.allclose(first, third)
 
 
 def test_hlines_wrapped_splits_and_sweeps_spans() -> None:
@@ -298,25 +305,13 @@ def test_hlines_wrapped_splits_and_sweeps_spans() -> None:
     # The height is folded into the y window
     folded = hlines_wrapped(ax, [370.0], [0.0], [1.0], wrapy=WRAP360)
     assert folded.get_segments()[0][0, 1] == 10.0
-
-
-def test_vlines_wrapped_is_the_mirror() -> None:
-    _, ax = plt.subplots()
-    lc = vlines_wrapped(ax, [1.0], [350.0], [370.0], wrapy=WRAP360)
-    spans = sorted((s[:, 1].min(), s[:, 1].max()) for s in lc.get_segments())
-    assert np.allclose(spans, [(0.0, 10.0), (350.0, 360.0)])
-    assert np.allclose([s[0, 0] for s in lc.get_segments()], 1.0)  # x is the fixed axis
-
-
-def test_wrapped_lines_expand_per_line_styles() -> None:
-    _, ax = plt.subplots()
-    # The first line splits in two, the second does not: colours follow their line
-    lc = hlines_wrapped(
-        ax, [1.0, 2.0], [350.0, 0.0], [370.0, 1.0], colors=["C0", "C3"], wrapx=WRAP360
-    )
-    assert len(lc.get_segments()) == 3
-    first, second, third = _arr(lc.get_color())
-    assert np.allclose(first, second) and not np.allclose(first, third)
+    # vlines is the mirror, splitting on y with x fixed
+    mirror = vlines_wrapped(ax, [1.0], [350.0], [370.0], wrapy=WRAP360)
+    assert sorted((s[:, 1].min(), s[:, 1].max()) for s in mirror.get_segments()) == [
+        (0.0, 10.0),
+        (350.0, 360.0),
+    ]
+    assert np.allclose([s[0, 0] for s in mirror.get_segments()], 1.0)
 
 
 # axhspan_wrapped / axvspan_wrapped
@@ -346,12 +341,9 @@ def test_axhspan_wrapped_folds_into_the_window() -> None:
     assert [
         (p.get_bbox().y0, p.get_bbox().y1) for p in axhspan_wrapped(ax, 370.0, 380.0, wrapy=WRAP360)
     ] == [(10.0, 20.0)]
-
-
-def test_axvspan_wrapped_is_the_mirror() -> None:
-    _, ax = plt.subplots()
-    pieces = axvspan_wrapped(ax, 350.0, 370.0, wrapx=WRAP360)
-    assert [(p.get_bbox().x0, p.get_bbox().x1) for p in pieces] == [(350.0, 360.0), (0.0, 10.0)]
+    # axvspan is the mirror, folding on x
+    mirror = axvspan_wrapped(ax, 350.0, 370.0, wrapx=WRAP360)
+    assert [(p.get_bbox().x0, p.get_bbox().x1) for p in mirror] == [(350.0, 360.0), (0.0, 10.0)]
 
 
 # fill_betweenx_wrapped
@@ -406,8 +398,8 @@ def test_step_wrapped_matches_mpl_and_wraps() -> None:
         # Unwrapped, the polyline is the one ax.step draws with drawstyle="steps-*"
         (ln,) = step_wrapped(ax, x, y, where=where)
         (ref,) = ax.step(x, y, where=where)
-        # Same drawn line; "mid" carries extra vertices on the treads so that
-        # markers can sit on the data points, as ax.step draws them
+        # Same drawn line. "mid" carries extra vertices on the treads so markers
+        # can sit on the data points, as ax.step draws them
         assert np.allclose(
             _drop_collinear(_arr(ln.get_xydata())), _drop_collinear(_arr(ref.get_path().vertices))
         )
