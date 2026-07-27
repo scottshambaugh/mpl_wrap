@@ -36,6 +36,10 @@
 * A wrapped fill's edge, if styled, is stroked along the band itself: the tiling
   seams, the joins between its pieces, and a saturated stretch (which is covered
   everywhere, so has no boundary) are not drawn
+* Markers are drawn only at the data points. Routing a line to the window edges
+  inserts vertices, and `step_wrapped` expands treads and risers; markers used to
+  land on those too. Matplotlib likewise draws markers at the data points rather
+  than at the vertices a drawstyle adds.
 
 ### Removed
 

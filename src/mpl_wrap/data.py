@@ -20,7 +20,7 @@ __all__ = [
 
 def _wrap_polyline(
     x: np.ndarray, y: np.ndarray, wrapy: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Wrap a polyline's y into the window as one NaN-broken polyline.
 
     At each period boundary a segment crosses, the line is routed to the window
@@ -28,6 +28,9 @@ def _wrap_polyline(
     connect at the correct slope, a multi-period segment sweeps the window once per
     period, and non-finite inputs pass through as breaks.
     To wrap x instead, call with x and y swapped. To wrap both, compose the two.
+
+    Returns the wrapped coordinates plus the output index of each input sample,
+    since the routing inserts vertices in between.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -35,7 +38,7 @@ def _wrap_polyline(
     period = y1 - y0
     n = len(y)
     if n == 0:
-        return x.copy(), y.copy()
+        return x.copy(), y.copy(), np.empty(0, dtype=np.intp)
 
     # Each sample's period band is k = floor((y - y0)/period), so its wrapped value
     # is y - k*period, and a segment crosses |dk| period boundaries. Both are computed
@@ -49,7 +52,7 @@ def _wrap_polyline(
     ncross = np.abs(dk)
     total = int(ncross.sum())
     if total == 0:
-        return x, wrapped
+        return x, wrapped, np.arange(n)
 
     before = np.concatenate([[0], np.cumsum(ncross)])  # crossings before each sample
     sample_idx = np.arange(n) + 3 * before
@@ -73,7 +76,7 @@ def _wrap_polyline(
     out_y[start] = np.where(asc, y1, y0)  # exit edge
     out_y[start + 1] = np.nan
     out_y[start + 2] = np.where(asc, y0, y1)  # enter edge
-    return out_x, out_y
+    return out_x, out_y, sample_idx
 
 
 def wrap_line(
@@ -103,13 +106,33 @@ def wrap_line(
     (np.ndarray, np.ndarray)
         The wrapped x and y coordinates, NaN-broken at seam crossings.
     """
+    xs, ys, _ = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy)
+    return xs, ys
+
+
+def _wrap_line_samples(
+    x: Any,
+    y: Any,
+    *,
+    wrapx: Iterable[float] | None = None,
+    wrapy: Iterable[float] | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Wrap a polyline, also returning where each input sample ended up.
+
+    Seam routing inserts vertices, so markers must be drawn at these indices
+    only - matplotlib likewise draws markers at the data points rather than at
+    the vertices a drawstyle adds.
+    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
+    pos = np.arange(len(x))
     if wrapy is not None:
-        x, y = _wrap_polyline(x, y, np.asarray(wrapy, dtype=float))
+        x, y, at = _wrap_polyline(x, y, np.asarray(wrapy, dtype=float))
+        pos = at[pos]
     if wrapx is not None:
-        y, x = _wrap_polyline(y, x, np.asarray(wrapx, dtype=float))
-    return x, y
+        y, x, at = _wrap_polyline(y, x, np.asarray(wrapx, dtype=float))
+        pos = at[pos]
+    return x, y, pos
 
 
 def _wrap_points(v: np.ndarray, wrap: np.ndarray | None) -> np.ndarray:
@@ -167,6 +190,31 @@ def _step_polyline(x: np.ndarray, *ys: np.ndarray, where: str) -> tuple[np.ndarr
         mids = 0.5 * (x[:-1] + x[1:])
         return (np.concatenate([x[:1], np.repeat(mids, 2), x[-1:]]), *(np.repeat(y, 2) for y in ys))
     raise ValueError(f"must be one of ['pre', 'post', 'mid'], not {where!r}")
+
+
+def _step_polyline_samples(
+    x: np.ndarray, y: np.ndarray, where: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The step polyline plus the index of each data point in it.
+
+    ``ax.step`` draws markers at the data points, not at the tread/riser
+    vertices. For "mid" the data points are not vertices at all, so each is
+    inserted into the horizontal tread it sits on - which leaves the drawn line
+    unchanged - giving every sample an index to hang a marker on.
+    """
+    xs, ys = _step_polyline(x, y, where=where)
+    n = len(x)
+    if where != "mid":
+        return xs, ys, 2 * np.arange(n)
+    if n == 0:
+        return xs, ys, np.empty(0, dtype=np.intp)
+    inner = np.arange(1, n - 1)
+    at = 2 * inner + 1
+    xs, ys = np.insert(xs, at, x[inner]), np.insert(ys, at, y[inner])
+    idx = np.empty(n, dtype=np.intp)
+    idx[0], idx[-1] = 0, len(xs) - 1
+    idx[1:-1] = at + np.arange(len(inner))
+    return xs, ys, idx
 
 
 def _stairs_polyline(

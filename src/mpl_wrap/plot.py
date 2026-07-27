@@ -27,7 +27,8 @@ from mpl_wrap.data import (
     _nan_joined_extents,
     _polyline_path,
     _stairs_polyline,
-    _step_polyline,
+    _step_polyline_samples,
+    _wrap_line_samples,
     _wrap_to_segments,
     wrap_line,
     wrap_points,
@@ -73,6 +74,19 @@ def _window_clip(ax: Axes, artist: Any, wrapx: np.ndarray | None, wrapy: np.ndar
         return
     ring = np.array([[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]], dtype=float)
     artist.set_clip_path(Path(ring), transform)
+
+
+def _plot_marked(
+    ax: Axes, xs: np.ndarray, ys: np.ndarray, samples: np.ndarray, args: Any, kwargs: Any
+) -> list[Line2D]:
+    """Plot a wrapped polyline, keeping markers on the data points.
+
+    Seam routing (and step expansion) insert vertices that are not data points;
+    markevery pins the markers to the samples, as matplotlib does for drawstyles.
+    """
+    if len(samples) != len(xs):
+        kwargs.setdefault("markevery", samples.tolist())
+    return ax.plot(xs, ys, *args, **kwargs)
 
 
 def _check_step_where(func: str, name: str, value: str) -> None:
@@ -236,8 +250,8 @@ def plot_wrapped(
         The plotted line artists, as from ``ax.plot``.
     """
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
-    xs, ys = wrap_line(x, y, wrapx=wx, wrapy=wy)
-    return ax.plot(xs, ys, *args, **kwargs)
+    xs, ys, samples = _wrap_line_samples(x, y, wrapx=wx, wrapy=wy)
+    return _plot_marked(ax, xs, ys, samples, args, kwargs)
 
 
 def scatter_wrapped(
@@ -395,8 +409,9 @@ def step_wrapped(
     """
     _check_step_where("step_wrapped", "where", where)
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
-    step_x, step_y = _step_polyline(x, y, where=where)
-    return ax.plot(*wrap_line(step_x, step_y, wrapx=wx, wrapy=wy), *args, **kwargs)
+    step_x, step_y, steps = _step_polyline_samples(x, y, where)
+    xs, ys, pos = _wrap_line_samples(step_x, step_y, wrapx=wx, wrapy=wy)
+    return _plot_marked(ax, xs, ys, pos[steps], args, kwargs)
 
 
 def stairs_wrapped(

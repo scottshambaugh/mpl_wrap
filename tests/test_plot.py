@@ -112,6 +112,16 @@ def _path(artist: Any) -> Path:
     return paths[0]
 
 
+def _drop_collinear(points: np.ndarray) -> np.ndarray:
+    """Drop vertices that lie on the segment between their neighbours."""
+    keep = [0]
+    for i in range(1, len(points) - 1):
+        back, fwd = points[i] - points[keep[-1]], points[i + 1] - points[i]
+        if abs(back[0] * fwd[1] - back[1] * fwd[0]) > 1e-9:
+            keep.append(i)
+    return points[[*keep, len(points) - 1]]
+
+
 def _covers(artist: Any, x: float, y: float) -> bool:
     """Whether the artist's band covers a data point.
 
@@ -269,7 +279,11 @@ def test_step_wrapped_matches_mpl_and_wraps() -> None:
         # Unwrapped, the polyline is the one ax.step draws with drawstyle="steps-*"
         (ln,) = step_wrapped(ax, x, y, where=where)
         (ref,) = ax.step(x, y, where=where)
-        assert np.allclose(_arr(ln.get_xydata()), _arr(ref.get_path().vertices))
+        # Same drawn line; "mid" carries extra vertices on the treads so that
+        # markers can sit on the data points, as ax.step draws them
+        assert np.allclose(
+            _drop_collinear(_arr(ln.get_xydata())), _drop_collinear(_arr(ref.get_path().vertices))
+        )
         # Wrapped, risers crossing the seam are routed to the window edges
         (wrapped,) = step_wrapped(ax, x, y, where=where, wrapy=WRAP360)
         ydata = _arr(wrapped.get_ydata())
