@@ -76,19 +76,15 @@ def wrapy_demo(savedir: Path = SAVEDIR) -> None:
             ax.set_ylim(wrapy[0] - 0.05 * period, wrapy[1] + 0.05 * period)
 
     axs[0].set_title("Unwrapped")
-    for y in (0, 360):
-        axs[0].axhline(y, color="k", alpha=0.8, linewidth=1)
     axs[0].yaxis.set_major_locator(MultipleLocator(period))
     axs[0].fill_between(x, lower, upper, **band_style)
     axs[0].plot(x, center, **line_style)
 
     axs[1].set_title("Modulus (y % 360)")
-    axs[1].yaxis.set_major_locator(MultipleLocator(90.0))
     axs[1].fill_between(x, lower % period, upper % period, **band_style)
     axs[1].plot(x, center % period, **line_style)
 
     axs[2].set_title("mpl_wrap")
-    axs[2].yaxis.set_major_locator(MultipleLocator(90.0))
     fill_between_wrapped(axs[2], x, lower, upper, **band_style)
     plot_wrapped(axs[2], x, center, **line_style)
 
