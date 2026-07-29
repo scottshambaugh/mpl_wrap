@@ -84,10 +84,8 @@ clears the stored window when passed to `set_wrap`), and `wrapx=True` /
 `wrapy=True` requires the stored window.
 `set_wrap` also sets the axis limits to the window by default, and ticks the
 window evenly so that ticks land exactly on the window edges, at about the
-automatic tick density. A radian window such as `(0, 2 * np.pi)` or
-`(-np.pi, np.pi)` is ticked in steps of π/2, labelled as fractions of π. Opt
-out with `set_lims=False` / `edge_ticks=False`, or pass `seam_lines=True` to
-mark the window edges with lines.
+automatic tick density. Opt out with `set_lims=False` / `edge_ticks=False`,
+or pass `seam_lines=True` to mark the window edges with lines.
 
 You must pass the original unwrapped data for these to work.
 If your data is already wrapped, [`np.unwrap`](https://numpy.org/doc/stable/reference/generated/numpy.unwrap.html) may be able to recover that if it's sampled at a high enough rate.
@@ -128,7 +126,7 @@ Both axes can be wrapped independently or together:
   <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/circle_demo.png" alt="Circle wrapped in x, y, and both" width="500">
 </p>
 
-### Datetime axes
+### Datetime data
 
 Datetime data and windows work on either axis. Here a five-day series is wrapped
 to show a time-of-day view:
@@ -140,4 +138,12 @@ plot_wrapped(ax, times, signal)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/datetime_demo.png" alt="Datetime wrapping" width="600">
+</p>
+
+### Radians
+
+Windows that are multiples of π/2 such as `(0, 2 * np.pi)` or `(-np.pi, np.pi)` are automatically detected and labeled with ticks that are fractions of π.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/pi_demo.png" alt="pi demo" width="600">
 </p>
