@@ -8,9 +8,11 @@
 ## [Unreleased]
 ### Added
 ### Changed
-* Fill edge strokes follow the fill's own clamped tile boundaries, so a band
-  gap that closes partway between two samples is stroked down to where it closes
 ### Removed
+
+## [0.2.2] - 2026-07-28
+### Changed
+* Fixed fill edge line breaking in edge cases
 
 ## [0.2.1] - 2026-07-28
 ### Added
