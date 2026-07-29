@@ -485,31 +485,27 @@ def _band_vertices(
     return np.concatenate(verts), np.concatenate(codes)
 
 
-def _unsaturated_curves(
-    x: np.ndarray, lo: np.ndarray, hi: np.ndarray, period: float
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """The lo/hi curves, broken with NaNs where the band is saturated.
+def _boundary_curves(
+    lo: np.ndarray, hi: np.ndarray, period: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """The band's boundary curves, clamped and blanked exactly as the fill tiles.
 
-    Saturated means at least a period wide: there the wrapped band covers the
-    whole window, so the curves run through covered area rather than along a
-    boundary, and stroking them would draw lines across the fill. Each break
-    starts and ends at the interpolated x where the band width crosses the
-    period, which is where the wrapped lo and hi curves meet.
+    ``hi`` is clamped to one period above ``lo``, as the fill clamps its tiles,
+    so the stroked curves trace the same tile edges the fill draws - including
+    across a segment on which the band saturates, where the gap between tiles
+    narrows to nothing only at the saturated sample. A sample is blanked with a
+    NaN when it and its neighbours are all saturated (at least a period wide):
+    there the tiles abut with no gap, so the curves run through covered area
+    with no boundary to stroke.
     """
-    width = hi - lo
-    sat = width >= period
+    sat = (hi - lo) >= period
+    hi = lo + np.minimum(hi - lo, period)
     if not sat.any():
-        return x, lo, hi
-    cross = np.nonzero(np.diff(sat))[0]  # segments where saturation flips
-    t = (period - width[cross]) / (width[cross + 1] - width[cross])
-    xp = x[cross] + t * (x[cross + 1] - x[cross])
-    lop = lo[cross] + t * (lo[cross + 1] - lo[cross])
-    at = cross + 1
-    return (
-        np.insert(x, at, xp),
-        np.insert(np.where(sat, np.nan, lo), at, lop),
-        np.insert(np.where(sat, np.nan, hi), at, lop + period),
-    )
+        return lo, hi
+    interior = sat.copy()
+    interior[1:] &= sat[:-1]
+    interior[:-1] &= sat[1:]
+    return np.where(interior, np.nan, lo), np.where(interior, np.nan, hi)
 
 
 def _band_edges(
@@ -536,13 +532,13 @@ def _band_edges(
     pieces: list[np.ndarray] = []
     for xr, lo, hi in _band_runs(x, y1, y2, where, interpolate, step):
         if wrapy is None:
-            cx, clo, chi = xr, lo, hi
+            clo, chi = lo, hi
         else:
             period = wrapy[1] - wrapy[0]
-            cx, clo, chi = _unsaturated_curves(xr, lo, hi, period)
+            clo, chi = _boundary_curves(lo, hi, period)
             hi = lo + np.minimum(hi - lo, period)  # a cap a full period long sweeps the window
         for curve in (clo, chi):
-            pieces += _wrap_to_segments(cx, curve, wrapx, wrapy)
+            pieces += _wrap_to_segments(xr, curve, wrapx, wrapy)
         for i in (0, -1):
             cap_x, cap_y = np.array([xr[i], xr[i]]), np.array([lo[i], hi[i]])
             pieces += _wrap_to_segments(cap_x, cap_y, wrapx, wrapy)

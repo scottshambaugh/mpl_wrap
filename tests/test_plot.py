@@ -293,8 +293,9 @@ def test_fill_between_edge_strokes_band_boundary_not_seams() -> None:
     # The junctions at x=1 and x=3 are inside the band, so no seam is stroked there
     assert (pixels(1.0, 180.0) == white).all()
     assert (pixels(3.0, 180.0) == white).all()
-    # The band boundary is stroked: the rising upper edge and the end cap
-    assert not (pixels(0.5, 250.0) == white).all()
+    # The band boundary is stroked: the rising upper edge (clamped, as the
+    # fill's tiles are, so the stroke lies on the drawn boundary) and the end cap
+    assert not (pixels(0.5, 230.0) == white).all()
     assert not (pixels(4.0, 50.0) == white).all()
 
 
