@@ -48,6 +48,22 @@ def basic_usage_demo(savedir: Path = SAVEDIR) -> None:
     _save_demo(fig, savedir, "basic_usage.png")
 
 
+def pi_demo(savedir: Path = SAVEDIR) -> None:
+    """A phase in radians on a (-pi, pi) window: pi/2 ticks labelled as fractions of pi."""
+    t = np.linspace(0, 10, 500)
+    phase = 1.5 * t  # radians
+    width = 0.1 + 0.07 * t
+
+    fig, ax = plt.subplots(figsize=(6, 3))
+    set_wrap(ax, wrapy=(-np.pi, np.pi))  # a radian window: pi/2 ticks, pi labels
+    fill_between_wrapped(ax, t, phase - width, phase + width, alpha=0.3, label="uncertainty")
+    plot_wrapped(ax, t, phase, label="phase")
+    ax.set(xlabel="time (s)", ylabel="phase (rad)")
+    ax.legend()
+
+    _save_demo(fig, savedir, "pi_demo.png")
+
+
 def wrapy_demo(savedir: Path = SAVEDIR) -> None:
     """Unwrapped vs naive modulo vs mpl_wrap comparison of an angle winding up."""
     wrapy = (0.0, 360.0)
@@ -188,6 +204,7 @@ def datetime_demo(savedir: Path = SAVEDIR) -> None:
 
 if __name__ == "__main__":
     basic_usage_demo()
+    pi_demo()
     wrapy_demo()
     circle_demo()
     datetime_demo()

@@ -7,12 +7,7 @@
 
 ## [Unreleased]
 ### Added
-* `set_wrap` (and `wrap_axes`) tick the window evenly by default, with round
-  steps that land exactly on the window edges. Opt out with `edge_ticks=False`.
 ### Changed
-* Fill edges are stroked from the wrapped band boundary itself, removing the
-  stray seam line drawn where a band stretch spanning a full period borders
-  narrower stretches on both sides
 ### Removed
 
 ## [0.2.1] - 2026-07-28
@@ -22,6 +17,8 @@
 * Fill edges are stroked from the wrapped band boundary itself, removing the
   stray seam line drawn where a band stretch spanning a full period borders
   narrower stretches on both sides
+* A radian window - edges at whole multiples of pi, as in `(0, 2 * np.pi)` or
+  `(-np.pi, np.pi)` - is ticked in steps of pi/2 and labelled as fractions of pi
 
 ## [0.2.0] - 2026-07-27
 ### Added

@@ -26,7 +26,7 @@ from mpl_wrap import (
     vlines_wrapped,
 )
 from mpl_wrap.data import _closed_subpaths
-from mpl_wrap.plot import _WindowEdgeLocator
+from mpl_wrap.plot import _PiFormatter, _WindowEdgeLocator
 
 WRAP360 = (0.0, 360.0)
 
@@ -660,6 +660,24 @@ def test_set_wrap_edge_ticks() -> None:
     set_wrap(ax2, wrapy=WRAP360)
     set_wrap(ax2, wrapy=False)
     assert ax2.yaxis.get_major_locator() is before
+
+
+def test_set_wrap_pi_window_ticks() -> None:
+    _, ax = plt.subplots()
+    set_wrap(ax, wrapx=(0.0, 2.0 * np.pi), wrapy=(-np.pi, np.pi))
+    # Windows with edges at half multiples of pi tick in steps of pi/2,
+    # labelled as fractions of pi
+    xticks = _arr(ax.xaxis.get_major_locator()())
+    yticks = _arr(ax.yaxis.get_major_locator()())
+    assert np.allclose(xticks, np.pi / 2.0 * np.arange(5))
+    assert np.allclose(yticks, np.pi / 2.0 * np.arange(-2, 3))
+    xfmt = ax.xaxis.get_major_formatter()
+    yfmt = ax.yaxis.get_major_formatter()
+    assert [xfmt(t) for t in xticks] == ["0", r"$\pi/2$", r"$\pi$", r"$3\pi/2$", r"$2\pi$"]
+    assert [yfmt(t) for t in yticks] == [r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"]
+    # Clearing the window restores the formatter along with the locator
+    set_wrap(ax, wrapx=False)
+    assert not isinstance(ax.xaxis.get_major_formatter(), _PiFormatter)
 
 
 def test_wrap_true_requires_stored_window() -> None:

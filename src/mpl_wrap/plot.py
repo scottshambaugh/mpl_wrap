@@ -8,6 +8,7 @@ on an axes so subsequent calls pick it up automatically.
 """
 
 from collections.abc import Iterable, Sequence
+from fractions import Fraction
 from typing import Any, Literal
 
 import matplotlib as mpl
@@ -19,7 +20,7 @@ from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from matplotlib.path import Path
-from matplotlib.ticker import Locator, MaxNLocator
+from matplotlib.ticker import Formatter, Locator, MaxNLocator
 
 from mpl_wrap.artists import WrapFillBetween, WrapStepPatch
 from mpl_wrap.data import (
@@ -165,6 +166,43 @@ def _is_nice_step(step: float) -> bool:
     return bool(np.isclose(_NICE_STEPS, mantissa, rtol=1e-9).any())
 
 
+def _half_pi_window(window: np.ndarray) -> int:
+    """The window span in whole half-pis, or 0 for a window not aligned to pi.
+
+    Detects radian windows - both edges half multiples of pi, as in (0, 2*pi)
+    or (-pi, pi) - which are ticked in steps of pi/2 and labelled as fractions
+    of pi.
+    """
+    edges = np.asarray(window, dtype=float) / (np.pi / 2)
+    if not np.allclose(edges, np.round(edges), rtol=0.0, atol=1e-9):
+        return 0
+    return round(edges[1] - edges[0])
+
+
+class _PiFormatter(Formatter):
+    """Label ticks as fractions of pi: "0", "$\\pi/2$", "$-3\\pi/4$", ...
+
+    Installed by `set_wrap` alongside the tick locator on an axis whose wrap
+    window edges are whole multiples of pi. A value that is not a simple
+    fraction of pi falls back to plain "%g" formatting. The formatter it
+    replaced is kept, to be restored when the window is cleared.
+    """
+
+    def __init__(self, base: Formatter) -> None:
+        self._base = base
+
+    def __call__(self, x: float, pos: int | None = None) -> str:
+        frac = Fraction(float(x) / np.pi).limit_denominator(24)
+        if not np.isclose(x, float(frac) * np.pi, rtol=1e-9, atol=1e-12):
+            return f"{x:g}"
+        if frac == 0:
+            return "0"
+        sign = "-" if frac < 0 else ""
+        num = abs(frac.numerator)
+        pi = rf"{sign}{num if num > 1 else ''}\pi"
+        return f"${pi}$" if frac.denominator == 1 else f"${pi}/{frac.denominator}$"
+
+
 class _WindowEdgeLocator(Locator):
     """Divide the wrap window into equal steps, ticking its edges exactly.
 
@@ -173,13 +211,15 @@ class _WindowEdgeLocator(Locator):
     spacing, so the ticks stay evenly spaced and land exactly on both window
     edges. A base spacing that already divides the window (a date locator's
     whole hours into a one-day window) is kept as the step; otherwise the count
-    whose step matplotlib's MaxNLocator would pick wins. Setting another
-    locator on the axis replaces this one as usual.
+    whose step matplotlib's MaxNLocator would pick wins, and a pi window steps
+    by whole multiples of pi/2. Setting another locator on the axis replaces
+    this one as usual.
     """
 
     def __init__(self, base: Locator, window: np.ndarray) -> None:
         self._base = base
         self._window = window
+        self._half_pis = _half_pi_window(window)
 
     def set_axis(self, axis: Any) -> None:
         super().set_axis(axis)
@@ -200,7 +240,14 @@ class _WindowEdgeLocator(Locator):
         step = float(np.median(np.diff(ticks))) if len(ticks) > 1 else period
         target = period / step
         n = max(round(target), 1)
-        if not np.isclose(n * step, period, rtol=1e-6):
+        if np.isclose(n * step, period, rtol=1e-6):
+            pass  # the base spacing divides the window: keep it as the step
+        elif self._half_pis:
+            # A pi window: the step is the whole multiple of pi/2 nearest the
+            # base spacing that divides the window.
+            halves = [j for j in range(1, self._half_pis + 1) if self._half_pis % j == 0]
+            n = self._half_pis // min(halves, key=lambda j: abs(j * np.pi / 2.0 - step))
+        else:
             # The base spacing does not divide the window: among step counts
             # within a factor of two of the base density, prefer counts whose
             # step MaxNLocator would pick, breaking ties towards the base
@@ -211,18 +258,30 @@ class _WindowEdgeLocator(Locator):
 
 
 def _install_edge_ticks(axis: Axis, window: np.ndarray) -> None:
-    """Tick the window edges: wrap the axis's locator in a _WindowEdgeLocator."""
+    """Tick the window edges: wrap the axis's locator in a _WindowEdgeLocator.
+
+    A pi window's ticks are also labelled as fractions of pi.
+    """
     base = axis.get_major_locator()
     if isinstance(base, _WindowEdgeLocator):
         base = base._base
     axis.set_major_locator(_WindowEdgeLocator(base, window))
+    formatter = axis.get_major_formatter()
+    if _half_pi_window(window):
+        if not isinstance(formatter, _PiFormatter):
+            axis.set_major_formatter(_PiFormatter(formatter))
+    elif isinstance(formatter, _PiFormatter):
+        axis.set_major_formatter(formatter._base)
 
 
 def _remove_edge_ticks(axis: Axis) -> None:
-    """Put the axis's own locator back, if edge ticks are still installed."""
+    """Put the axis's own locator (and formatter) back, if still installed."""
     locator = axis.get_major_locator()
     if isinstance(locator, _WindowEdgeLocator):
         axis.set_major_locator(locator._base)
+    formatter = axis.get_major_formatter()
+    if isinstance(formatter, _PiFormatter):
+        axis.set_major_formatter(formatter._base)
 
 
 def set_wrap(
@@ -255,8 +314,11 @@ def set_wrap(
     edge_ticks : bool, default True
         Tick each given window with evenly spaced ticks that land exactly on
         the window edges, dividing the window into a whole number of round
-        steps at about the automatic tick density. Setting a locator on the
-        axis afterwards overrides this, and clearing a window removes it.
+        steps at about the automatic tick density. A window whose edges are
+        whole multiples of pi, as in ``(0, 2 * np.pi)`` or ``(-np.pi, np.pi)``,
+        is ticked in steps of pi/2 (or a multiple) and labelled as fractions of
+        pi. Setting a locator on the axis afterwards overrides this, and
+        clearing a window removes it.
     seam_lines : bool, default False
         Draw lines at the window edges of each given window.
     seam_kwargs : dict, optional
