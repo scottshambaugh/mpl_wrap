@@ -273,6 +273,33 @@ def test_fill_between_no_window_single_tile() -> None:
     assert len(_arr(_path(patch).vertices)) == 2 * len(x) + 1  # + the CLOSEPOLY vertex
 
 
+def test_fill_between_edge_strokes_band_boundary_not_seams() -> None:
+    fig, ax = plt.subplots()
+    # Saturated only in the middle: that stretch collapses to a rectangle with
+    # tiled runs on both sides, so the rectangle's sides are interior seams.
+    x = np.arange(5.0)
+    hi = np.array([100.0, 400.0, 400.0, 400.0, 100.0])
+    fill_between_wrapped(
+        ax, x, np.zeros(5), hi, wrapy=WRAP360, facecolor="none", edgecolor="red", linewidth=3
+    )
+    ax.set(xlim=(-0.5, 4.5), ylim=(-10.0, 370.0))
+    fig.canvas.draw()
+    rgba = np.asarray(fig.canvas.buffer_rgba())  # type: ignore[attr-defined]
+
+    def pixels(xd: float, yd: float) -> np.ndarray:
+        xp, yp = ax.transData.transform((xd, yd))
+        row, col = rgba.shape[0] - 1 - round(float(yp)), round(float(xp))
+        return rgba[row - 2 : row + 3, col - 2 : col + 3]
+
+    white = np.array([255, 255, 255, 255], dtype=np.uint8)
+    # The junctions at x=1 and x=3 are inside the band, so no seam is stroked there
+    assert (pixels(1.0, 180.0) == white).all()
+    assert (pixels(3.0, 180.0) == white).all()
+    # The band boundary is stroked: the rising upper edge and the end cap
+    assert not (pixels(0.5, 250.0) == white).all()
+    assert not (pixels(4.0, 50.0) == white).all()
+
+
 # hlines_wrapped / vlines_wrapped
 
 
@@ -366,6 +393,9 @@ def test_fill_betweenx_wrapped_is_the_transpose_of_fill_between() -> None:
         np.sort(_arr(_path(band).vertices)[:, ::-1], axis=0),
         np.sort(_arr(_path(ref).vertices), axis=0),
     )
+    # The stroked edge path is transposed with it
+    assert band._edge_path is not None and ref._edge_path is not None
+    assert np.allclose(_arr(band._edge_path.vertices)[:, ::-1], _arr(ref._edge_path.vertices))
 
 
 def test_fill_betweenx_wrapped_matches_mpl_unwrapped() -> None:

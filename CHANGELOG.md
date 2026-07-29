@@ -8,6 +8,9 @@
 ## [Unreleased]
 ### Added
 ### Changed
+* Fill edges are stroked from the wrapped band boundary itself, removing the
+  stray seam line drawn where a band stretch spanning a full period borders
+  narrower stretches on both sides
 ### Removed
 
 ## [0.2.0] - 2026-07-27

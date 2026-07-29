@@ -10,11 +10,12 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 import numpy as np
+from matplotlib.artist import allow_rasterization
 from matplotlib.collections import FillBetweenPolyCollection
 from matplotlib.patches import StepPatch
 from matplotlib.path import Path
 
-from mpl_wrap.data import _band_extent, _band_vertices
+from mpl_wrap.data import _band_edges, _band_extent, _band_vertices
 
 __all__ = [
     "WrapFillBetween",
@@ -38,6 +39,11 @@ class WrapFillBetween(FillBetweenPolyCollection):
     _interpolate: bool
     _step: str | None
     t_direction: Literal["x", "y"]
+    # Set by Collection.__init__, but absent from its type stubs.
+    _edgecolors: np.ndarray
+    _facecolors: np.ndarray
+    _paths: list[Path]
+    _hatch: str | None
 
     def __init__(
         self,
@@ -53,6 +59,7 @@ class WrapFillBetween(FillBetweenPolyCollection):
         self._wrapx = wrapx
         self._wrapy = wrapy
         self._band_codes: np.ndarray | None = None
+        self._edge_path: Path | None = None
         super().__init__(t_direction, t, f1, f2, **kwargs)
 
     def _make_verts(self, t: Any, f1: Any, f2: Any, where: Any) -> list[np.ndarray]:
@@ -63,22 +70,59 @@ class WrapFillBetween(FillBetweenPolyCollection):
         """
         along_x = self.t_direction == "x"
         wrap_t, wrap_f = (self._wrapx, self._wrapy) if along_x else (self._wrapy, self._wrapx)
-        verts, codes = _band_vertices(
-            np.asarray(t, dtype=float),
-            np.asarray(f1, dtype=float),
-            np.asarray(f2, dtype=float),
-            where=where,
-            interpolate=self._interpolate,
-            step=self._step,
-            wrapx=wrap_t,
-            wrapy=wrap_f,
-        )
+        band = {
+            "where": where,
+            "interpolate": self._interpolate,
+            "step": self._step,
+            "wrapx": wrap_t,
+            "wrapy": wrap_f,
+        }
+        t, f1, f2 = (np.asarray(a, dtype=float) for a in (t, f1, f2))
+        verts, codes = _band_vertices(t, f1, f2, **band)
+        edge_verts, edge_codes = _band_edges(t, f1, f2, **band)
         if not along_x:
             verts = verts[:, ::-1]
+            edge_verts = edge_verts[:, ::-1]
         self._band_codes = codes
+        self._edge_path = Path(edge_verts, edge_codes) if len(edge_verts) else None
         # The tiles overshoot the window. Only their intersection is drawn.
         self._bbox = _band_extent(verts, self._wrapx, self._wrapy)
         return [verts]
+
+    @allow_rasterization
+    def draw(self, renderer: Any) -> None:
+        """Fill the tiles with no edge, then stroke the band edge path.
+
+        The compound fill path has subpath boundaries interior to the union -
+        tile joins, and the sides of a saturated run's rectangle - so stroking
+        it would draw seams across the band. The edge, when visible, is instead
+        stroked from the wrapped band boundary built by ``_make_verts``.
+        """
+        # Resolve colours now: the first update_scalarmappable call inside
+        # Collection.draw resets them from the originals, undoing the swaps below.
+        self.update_scalarmappable()
+        edge = np.asarray(self.get_edgecolor(), dtype=float)
+        widths = np.asarray(self.get_linewidth(), dtype=float)
+        if (
+            self._edge_path is None
+            or self.get_array() is not None  # mapped colours repopulate during draw
+            or edge.size == 0
+            or not edge[:, 3].any()
+            or not widths.any()
+        ):
+            super().draw(renderer)
+            return
+        state = self._paths, self._facecolors, self._edgecolors, self._hatch
+        try:
+            self._edgecolors = np.empty((0, 4))
+            super().draw(renderer)
+            self._paths = [self._edge_path]
+            self._facecolors = np.empty((0, 4))
+            self._edgecolors = edge  # resolved, in case it was "face"
+            self._hatch = None
+            super().draw(renderer)
+        finally:
+            self._paths, self._facecolors, self._edgecolors, self._hatch = state
 
     def set_verts(self, verts: Any, closed: bool = True) -> None:
         """Set the tiles as one compound path, so the union fills once."""

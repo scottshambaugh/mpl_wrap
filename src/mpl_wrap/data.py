@@ -416,22 +416,19 @@ def _run_band_vertices(
     return _tiled_band_vertices(x, lo, hi, wrapx, wrapy)
 
 
-def _band_vertices(
+def _band_runs(
     x: np.ndarray,
     y1: np.ndarray,
     y2: np.ndarray,
-    *,
-    where: Any = None,
-    interpolate: bool = False,
-    step: str | None = None,
-    wrapx: np.ndarray | None = None,
-    wrapy: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Build the wrapped fill-band path, with ``ax.fill_between``'s run semantics.
+    where: Any,
+    interpolate: bool,
+    step: str | None,
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Each contiguous band run as ``(x, lo, hi)``, stepped and interpolated.
 
-    The band is drawn once per contiguous run of ``where`` (non-finite samples
-    break runs, as gappy series are the norm for wrapped data), each run stepped
-    and interpolated as requested before being tiled over its period offsets.
+    Runs follow ``ax.fill_between``'s semantics: one per contiguous stretch of
+    ``where`` (non-finite samples break runs, as gappy series are the norm for
+    wrapped data), stepped and extended to the true crossings as requested.
     """
     x, y1, y2 = np.broadcast_arrays(np.atleast_1d(x), np.atleast_1d(y1), np.atleast_1d(y2))
     mask = np.isfinite(x) & np.isfinite(y1) & np.isfinite(y2)
@@ -442,8 +439,7 @@ def _band_vertices(
         mask &= where
 
     n = len(x)
-    verts: list[np.ndarray] = []
-    codes: list[np.ndarray] = []
+    runs: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     for run in _contiguous_runs(np.nonzero(mask)[0]):
         idx0, idx1 = int(run[0]), int(run[-1]) + 1
         xr, f1, f2 = x[idx0:idx1], y1[idx0:idx1], y2[idx0:idx1]
@@ -458,12 +454,104 @@ def _band_vertices(
         if interpolate and idx1 < n:
             xc, yc = _interp_crossing(x, y1, y2, idx1)
             xr, lo, hi = (np.concatenate([a, [v]]) for v, a in ((xc, xr), (yc, lo), (yc, hi)))
+        runs.append((xr, lo, hi))
+    return runs
+
+
+def _band_vertices(
+    x: np.ndarray,
+    y1: np.ndarray,
+    y2: np.ndarray,
+    *,
+    where: Any = None,
+    interpolate: bool = False,
+    step: str | None = None,
+    wrapx: np.ndarray | None = None,
+    wrapy: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the wrapped fill-band path, with ``ax.fill_between``'s run semantics.
+
+    The band is drawn once per contiguous run of ``where``, each run tiled over
+    its period offsets.
+    """
+    verts: list[np.ndarray] = []
+    codes: list[np.ndarray] = []
+    for xr, lo, hi in _band_runs(x, y1, y2, where, interpolate, step):
         v, c = _run_band_vertices(xr, lo, hi, wrapx, wrapy)
         verts.append(v)
         codes.append(c)
     if not verts:
         return np.empty((0, 2)), np.empty(0, dtype=np.uint8)
     return np.concatenate(verts), np.concatenate(codes)
+
+
+def _unsaturated_curves(
+    x: np.ndarray, lo: np.ndarray, hi: np.ndarray, period: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The lo/hi curves, broken with NaNs where the band is saturated.
+
+    Saturated means at least a period wide: there the wrapped band covers the
+    whole window, so the curves run through covered area rather than along a
+    boundary, and stroking them would draw lines across the fill. Each break
+    starts and ends at the interpolated x where the band width crosses the
+    period, which is where the wrapped lo and hi curves meet.
+    """
+    width = hi - lo
+    sat = width >= period
+    if not sat.any():
+        return x, lo, hi
+    cross = np.nonzero(np.diff(sat))[0]  # segments where saturation flips
+    t = (period - width[cross]) / (width[cross + 1] - width[cross])
+    xp = x[cross] + t * (x[cross + 1] - x[cross])
+    lop = lo[cross] + t * (lo[cross + 1] - lo[cross])
+    at = cross + 1
+    return (
+        np.insert(x, at, xp),
+        np.insert(np.where(sat, np.nan, lo), at, lop),
+        np.insert(np.where(sat, np.nan, hi), at, lop + period),
+    )
+
+
+def _band_edges(
+    x: np.ndarray,
+    y1: np.ndarray,
+    y2: np.ndarray,
+    *,
+    where: Any = None,
+    interpolate: bool = False,
+    step: str | None = None,
+    wrapx: np.ndarray | None = None,
+    wrapy: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the band's edge path: the wrapped lo/hi curves plus each run's end caps.
+
+    The fill path tiles the band, so its subpath boundaries include seams
+    interior to the union - tile joins, and the sides of a saturated run's
+    rectangle - which a stroke must not draw. This is the boundary
+    ``ax.fill_between`` would stroke, wrapped like the plotted lines, for the
+    artist to stroke separately from the fill: the curves where the band is
+    narrower than a period (a band spanning a full period covers the whole
+    window there, leaving no boundary to draw), and each run's end caps.
+    """
+    pieces: list[np.ndarray] = []
+    for xr, lo, hi in _band_runs(x, y1, y2, where, interpolate, step):
+        if wrapy is None:
+            cx, clo, chi = xr, lo, hi
+        else:
+            period = wrapy[1] - wrapy[0]
+            cx, clo, chi = _unsaturated_curves(xr, lo, hi, period)
+            hi = lo + np.minimum(hi - lo, period)  # a cap a full period long sweeps the window
+        for curve in (clo, chi):
+            pieces += _wrap_to_segments(cx, curve, wrapx, wrapy)
+        for i in (0, -1):
+            cap_x, cap_y = np.array([xr[i], xr[i]]), np.array([lo[i], hi[i]])
+            pieces += _wrap_to_segments(cap_x, cap_y, wrapx, wrapy)
+    if not pieces:
+        return np.empty((0, 2)), np.empty(0, dtype=np.uint8)
+    verts = np.concatenate(pieces)
+    codes = np.full(len(verts), Path.LINETO, dtype=np.uint8)
+    codes[np.cumsum([0] + [len(p) for p in pieces[:-1]])] = Path.MOVETO
+    return verts, codes
 
 
 def _polyline_path(x: np.ndarray, y: np.ndarray) -> Path:
