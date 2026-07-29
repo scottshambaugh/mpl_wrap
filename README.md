@@ -142,7 +142,12 @@ plot_wrapped(ax, times, signal)
 
 ### Radians
 
-Windows that are multiples of π/2 such as `(0, 2 * np.pi)` or `(-np.pi, np.pi)` are automatically detected and labeled with ticks that are fractions of π.
+Windows that are multiples of π/2 are automatically detected and labeled with ticks that are fractions of π.
+
+```python
+set_wrap(ax, wrapy=(-np.pi, np.pi))
+plot_wrapped(ax, t, angle)
+```
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/pi_demo.png" alt="pi demo" width="600">
