@@ -15,6 +15,14 @@
   narrower stretches on both sides
 ### Removed
 
+## [0.2.1] - 2026-07-28
+### Changed
+* `set_wrap` (and `wrap_axes`) tick the window evenly by default, with round
+  steps that land exactly on the window edges. Opt out with `edge_ticks=False`.
+* Fill edges are stroked from the wrapped band boundary itself, removing the
+  stray seam line drawn where a band stretch spanning a full period borders
+  narrower stretches on both sides
+
 ## [0.2.0] - 2026-07-27
 ### Added
 * `step_wrapped`, `fill_betweenx_wrapped`, `hlines_wrapped`, `vlines_wrapped`,
