@@ -11,14 +11,16 @@
 ### Removed
 
 ## [0.2.1] - 2026-07-28
+### Added
+* Windows at half multiples of pi, such as `(0, 2 * np.pi)` or
+  `(-np.pi, np.pi)`, are ticked in steps of pi/2 and labelled as fractions of pi
+
 ### Changed
 * `set_wrap` (and `wrap_axes`) tick the window evenly by default, with round
   steps that land exactly on the window edges. Opt out with `edge_ticks=False`.
 * Fill edges are stroked from the wrapped band boundary itself, removing the
   stray seam line drawn where a band stretch spanning a full period borders
   narrower stretches on both sides
-* A radian window - edges at whole multiples of pi, as in `(0, 2 * np.pi)` or
-  `(-np.pi, np.pi)` - is ticked in steps of pi/2 and labelled as fractions of pi
 
 ## [0.2.0] - 2026-07-27
 ### Added
@@ -49,8 +51,6 @@
   polyline instead of jumping at the seam
 * `stairs_wrapped` defaults to `baseline=0` as `ax.stairs` does, so both ends
   drop to the baseline. Pass `baseline=None` for the previous bare staircase.
-
-### Removed
 
 ## [0.1.0] - 2026-07-18
 Initial release!
