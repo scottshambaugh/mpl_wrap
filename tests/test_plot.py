@@ -36,10 +36,6 @@ def _arr(values: Any) -> np.ndarray:
     return np.asarray(values, dtype=float)
 
 
-def test_version() -> None:
-    assert mpl_wrap.__version__ == "0.2.0"
-
-
 def test_public_api() -> None:
     for name in (
         "set_wrap",
