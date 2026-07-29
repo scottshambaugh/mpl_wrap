@@ -12,6 +12,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
+from matplotlib.ticker import MultipleLocator
 
 from mpl_wrap import (
     fill_between_wrapped,
@@ -75,14 +76,19 @@ def wrapy_demo(savedir: Path = SAVEDIR) -> None:
             ax.set_ylim(wrapy[0] - 0.05 * period, wrapy[1] + 0.05 * period)
 
     axs[0].set_title("Unwrapped")
+    for y in (0, 360):
+        axs[0].axhline(y, color="k", alpha=0.8, linewidth=1)
+    axs[0].yaxis.set_major_locator(MultipleLocator(period))
     axs[0].fill_between(x, lower, upper, **band_style)
     axs[0].plot(x, center, **line_style)
 
     axs[1].set_title("Modulus (y % 360)")
+    axs[1].yaxis.set_major_locator(MultipleLocator(90.0))
     axs[1].fill_between(x, lower % period, upper % period, **band_style)
     axs[1].plot(x, center % period, **line_style)
 
     axs[2].set_title("mpl_wrap")
+    axs[2].yaxis.set_major_locator(MultipleLocator(90.0))
     fill_between_wrapped(axs[2], x, lower, upper, **band_style)
     plot_wrapped(axs[2], x, center, **line_style)
 
@@ -119,6 +125,8 @@ def circle_demo(savedir: Path = SAVEDIR) -> None:
             set_wrap(ax, wrapx=wrapx, wrapy=wrapy, set_lims=False, seam_lines=True)
             fill_between_wrapped(ax, x_fill, lower, semi, color="C0", alpha=0.25)
             plot_wrapped(ax, x, y, color="C0")
+            ax.yaxis.set_major_locator(MultipleLocator(window[1]))
+            ax.xaxis.set_major_locator(MultipleLocator(window[1]))
             ax.set(xlim=(-pad, pad), ylim=(-pad, pad))
 
     _save_demo(fig, savedir, "circle_demo.png")
