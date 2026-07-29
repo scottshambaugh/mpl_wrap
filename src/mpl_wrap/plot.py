@@ -7,7 +7,7 @@ seam crossing instead of drawing jump artifacts. ``set_wrap`` stores a window
 on an axes so subsequent calls pick it up automatically.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any, Literal
 
 import matplotlib as mpl
@@ -19,6 +19,7 @@ from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from matplotlib.path import Path
+from matplotlib.ticker import Locator, MaxNLocator
 
 from mpl_wrap.artists import WrapFillBetween, WrapStepPatch
 from mpl_wrap.data import (
@@ -154,12 +155,83 @@ def _prepare_xy(
     return (_to_num(ax.xaxis, x), _to_num(ax.yaxis, y), *_windows(ax, wrapx, wrapy))
 
 
+# The step sizes matplotlib's MaxNLocator chooses ticks from, per power of ten.
+_NICE_STEPS = MaxNLocator()._steps  # type: ignore[attr-defined]
+
+
+def _is_nice_step(step: float) -> bool:
+    """Whether matplotlib's MaxNLocator would pick this step (1, 1.5, ... x 10^k)."""
+    mantissa = step / 10 ** np.floor(np.log10(step))
+    return bool(np.isclose(_NICE_STEPS, mantissa, rtol=1e-9).any())
+
+
+class _WindowEdgeLocator(Locator):
+    """Divide the wrap window into equal steps, ticking its edges exactly.
+
+    Wraps the locator that was on the axis and takes only its tick density: the
+    window is split into a whole number of equal steps close to the base
+    spacing, so the ticks stay evenly spaced and land exactly on both window
+    edges. A base spacing that already divides the window (a date locator's
+    whole hours into a one-day window) is kept as the step; otherwise the count
+    whose step matplotlib's MaxNLocator would pick wins. Setting another
+    locator on the axis replaces this one as usual.
+    """
+
+    def __init__(self, base: Locator, window: np.ndarray) -> None:
+        self._base = base
+        self._window = window
+
+    def set_axis(self, axis: Any) -> None:
+        super().set_axis(axis)
+        self._base.set_axis(axis)
+
+    def __call__(self) -> Sequence[float]:
+        # The base reads the axis itself: date locators convert the view to
+        # datetimes first, which tick_values would skip.
+        return self._edge_ticks(self._base())
+
+    def tick_values(self, vmin: float, vmax: float) -> Sequence[float]:
+        return self._edge_ticks(self._base.tick_values(vmin, vmax))
+
+    def _edge_ticks(self, ticks: Any) -> list[float]:
+        w0, w1 = self._window
+        period = w1 - w0
+        ticks = np.sort(np.asarray(ticks, dtype=float))
+        step = float(np.median(np.diff(ticks))) if len(ticks) > 1 else period
+        target = period / step
+        n = max(round(target), 1)
+        if not np.isclose(n * step, period, rtol=1e-6):
+            # The base spacing does not divide the window: among step counts
+            # within a factor of two of the base density, prefer counts whose
+            # step MaxNLocator would pick, breaking ties towards the base
+            # density and then towards more ticks.
+            counts = range(max(round(target / 2), 1), round(target * 2) + 1)
+            n = min(counts, key=lambda k: (not _is_nice_step(period / k), abs(k - target), -k))
+        return list(np.linspace(w0, w1, n + 1))
+
+
+def _install_edge_ticks(axis: Axis, window: np.ndarray) -> None:
+    """Tick the window edges: wrap the axis's locator in a _WindowEdgeLocator."""
+    base = axis.get_major_locator()
+    if isinstance(base, _WindowEdgeLocator):
+        base = base._base
+    axis.set_major_locator(_WindowEdgeLocator(base, window))
+
+
+def _remove_edge_ticks(axis: Axis) -> None:
+    """Put the axis's own locator back, if edge ticks are still installed."""
+    locator = axis.get_major_locator()
+    if isinstance(locator, _WindowEdgeLocator):
+        axis.set_major_locator(locator._base)
+
+
 def set_wrap(
     ax: Axes,
     wrapx: WrapSpec = None,
     wrapy: WrapSpec = None,
     *,
     set_lims: bool = True,
+    edge_ticks: bool = True,
     seam_lines: bool = False,
     seam_kwargs: dict[str, Any] | None = None,
 ) -> Axes:
@@ -180,6 +252,11 @@ def set_wrap(
         ``False`` clears a previously stored window, and None leaves it unchanged.
     set_lims : bool, default True
         Set the axis limits of each given window to the window.
+    edge_ticks : bool, default True
+        Tick each given window with evenly spaced ticks that land exactly on
+        the window edges, dividing the window into a whole number of round
+        steps at about the automatic tick density. Setting a locator on the
+        axis afterwards overrides this, and clearing a window removes it.
     seam_lines : bool, default False
         Draw lines at the window edges of each given window.
     seam_kwargs : dict, optional
@@ -203,11 +280,14 @@ def set_wrap(
             raise ValueError(f"wrap{name}=True is not valid in set_wrap. Pass a (min, max) window.")
         if wrap is False:
             windows.pop(name, None)
+            _remove_edge_ticks(axis)
             continue
         w = _to_num(axis, wrap)
         windows[name] = w
         if set_lims:
             set_lim(w[0], w[1])
+        if edge_ticks:
+            _install_edge_ticks(axis, w)
         if seam_lines:
             seam(w[0], **style)
             seam(w[1], **style)

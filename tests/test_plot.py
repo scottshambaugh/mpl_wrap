@@ -8,6 +8,7 @@ from matplotlib.collections import FillBetweenPolyCollection, LineCollection
 from matplotlib.container import ErrorbarContainer
 from matplotlib.patches import Rectangle, StepPatch
 from matplotlib.path import Path
+from matplotlib.ticker import MultipleLocator
 
 import mpl_wrap
 from mpl_wrap import (
@@ -25,6 +26,7 @@ from mpl_wrap import (
     vlines_wrapped,
 )
 from mpl_wrap.data import _closed_subpaths
+from mpl_wrap.plot import _WindowEdgeLocator
 
 WRAP360 = (0.0, 360.0)
 
@@ -623,6 +625,45 @@ def test_set_wrap_seam_lines() -> None:
     assert len(lines) == 2
     assert sorted(_arr(ln.get_ydata())[0] for ln in lines) == [0.0, 360.0]
     assert all(ln.get_color() == "C3" for ln in lines)
+
+
+def test_set_wrap_edge_ticks() -> None:
+    _, ax = plt.subplots()
+    set_wrap(ax, wrapy=WRAP360)
+    ticks = _arr(ax.yaxis.get_major_locator()())
+    # Evenly spaced round steps landing exactly on the window edges
+    assert ticks[0] == 0.0 and ticks[-1] == 360.0
+    step = ticks[1] - ticks[0]
+    assert len(ticks) > 3 and np.allclose(np.diff(ticks), step)
+    assert 360.0 % step == 0.0
+
+    # A locator chosen beforehand sets the tick density (rounded to a step
+    # dividing the window), wrapped once no matter how often set_wrap is repeated
+    ax.yaxis.set_major_locator(MultipleLocator(100.0))
+    set_wrap(ax, wrapy=WRAP360)
+    set_wrap(ax, wrapy=WRAP360)
+    locator = ax.yaxis.get_major_locator()
+    assert isinstance(locator, _WindowEdgeLocator)
+    assert isinstance(locator._base, MultipleLocator)
+    assert list(_arr(locator())) == [0.0, 60.0, 120.0, 180.0, 240.0, 300.0, 360.0]
+
+    # A datetime window ticks its edges in date units (1 day = 1.0), keeping
+    # the date locator's step where it divides the window
+    t0 = np.datetime64("2026-01-01T00:00")
+    set_wrap(ax, wrapx=(t0, t0 + np.timedelta64(1, "D")))
+    x0 = float(ax.xaxis.convert_units(t0))
+    xticks = _arr(ax.xaxis.get_major_locator()())
+    assert xticks[0] == x0 and xticks[-1] == x0 + 1.0
+    assert np.allclose(np.diff(xticks), xticks[1] - xticks[0])
+
+    # edge_ticks=False leaves the locator alone, and clearing a window restores it
+    _, ax2 = plt.subplots()
+    before = ax2.yaxis.get_major_locator()
+    set_wrap(ax2, wrapy=WRAP360, edge_ticks=False)
+    assert ax2.yaxis.get_major_locator() is before
+    set_wrap(ax2, wrapy=WRAP360)
+    set_wrap(ax2, wrapy=False)
+    assert ax2.yaxis.get_major_locator() is before
 
 
 def test_wrap_true_requires_stored_window() -> None:

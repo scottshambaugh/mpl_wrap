@@ -82,9 +82,10 @@ across the seam is two rectangles.
 Passing `wrapx=False` / `wrapy=False` disables wrapping for a single call (or
 clears the stored window when passed to `set_wrap`), and `wrapx=True` /
 `wrapy=True` requires the stored window.
-`set_wrap` also sets the axis limits to the window by default. Opt out with
-`set_lims=False`, or pass `seam_lines=True` to mark the window edges with
-lines.
+`set_wrap` also sets the axis limits to the window by default, and ticks the
+window evenly so that ticks land exactly on the window edges, at about the
+automatic tick density. Opt out with `set_lims=False` / `edge_ticks=False`, or
+pass `seam_lines=True` to mark the window edges with lines.
 
 You must pass the original unwrapped data for these to work.
 If your data is already wrapped, [`np.unwrap`](https://numpy.org/doc/stable/reference/generated/numpy.unwrap.html) may be able to recover that if it's sampled at a high enough rate.

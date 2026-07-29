@@ -166,6 +166,7 @@ def wrap_axes(
     wrapy: WrapSpec = None,
     *,
     set_lims: bool = True,
+    edge_ticks: bool = True,
     seam_lines: bool = False,
     seam_kwargs: dict[str, Any] | None = None,
 ) -> AxesWrapBase:
@@ -180,7 +181,7 @@ def wrap_axes(
     ----------
     ax : matplotlib.axes.Axes
         The axes to upgrade, modified in place.
-    wrapx, wrapy, set_lims, seam_lines, seam_kwargs
+    wrapx, wrapy, set_lims, edge_ticks, seam_lines, seam_kwargs
         Forwarded to `set_wrap`.
 
     Returns
@@ -190,5 +191,12 @@ def wrap_axes(
     """
     ax.__class__ = _axes_wrap_class(type(ax))
     assert isinstance(ax, AxesWrapBase)
-    ax.set_wrap(wrapx, wrapy, set_lims=set_lims, seam_lines=seam_lines, seam_kwargs=seam_kwargs)
+    ax.set_wrap(
+        wrapx,
+        wrapy,
+        set_lims=set_lims,
+        edge_ticks=edge_ticks,
+        seam_lines=seam_lines,
+        seam_kwargs=seam_kwargs,
+    )
     return ax
