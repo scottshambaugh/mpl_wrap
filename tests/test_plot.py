@@ -17,6 +17,7 @@ from mpl_wrap import (
     axhspan_wrapped,
     axvspan_wrapped,
     errorbar_wrapped,
+    fill_around,
     fill_between_wrapped,
     fill_betweenx_wrapped,
     hlines_wrapped,
@@ -830,3 +831,40 @@ def test_geographic_plain_axes_limits_span_the_globe() -> None:
     _, ax = plt.subplots()
     set_wrap(ax, wrapx=(-180.0, 180.0), geographic=True, set_lims=False)
     assert ax.get_ylim() == (0.0, 1.0)
+
+
+# fill_around on a plain axes
+
+
+def _corridor_verts(artist) -> np.ndarray:
+    return np.vstack([p.vertices for p in artist.get_paths()])
+
+
+def test_fill_around_plain_axes_is_a_corridor_in_data_units() -> None:
+    pytest.importorskip("shapely")
+    _, ax = plt.subplots()
+    artist = fill_around(ax, [0.0, 5.0, 10.0], [0.0, 0.0, 0.0], 1.0)
+    verts = _corridor_verts(artist)
+    assert np.allclose(verts[:, 0].min(), 0.0) and np.allclose(verts[:, 0].max(), 10.0)
+    assert np.allclose(verts[:, 1].min(), -1.0) and np.allclose(verts[:, 1].max(), 1.0)
+    assert artist in ax.collections
+    assert ax.get_ylim()[0] <= -1.0 and ax.get_ylim()[1] >= 1.0  # autoscaled to the band
+
+
+def test_fill_around_plain_axes_takes_per_point_widths() -> None:
+    pytest.importorskip("shapely")
+    _, ax = plt.subplots()
+    artist = fill_around(ax, [0.0, 10.0], [0.0, 0.0], [1.0, 3.0])
+    verts = _corridor_verts(artist)
+    assert np.allclose(verts[:, 1].max(), 3.0)
+    assert np.allclose(verts[verts[:, 0] < 1e-9][:, 1].max(), 1.0)
+
+
+def test_fill_around_plain_axes_wraps_into_the_window() -> None:
+    pytest.importorskip("shapely")
+    _, ax = plt.subplots()
+    set_wrap(ax, wrapy=(0.0, 360.0))
+    artist = fill_around(ax, [0.0, 10.0], [359.0, 359.0], 2.0)
+    verts = _corridor_verts(artist)
+    assert verts[:, 1].min() >= 0.0 and verts[:, 1].max() <= 360.0
+    assert (verts[:, 1] > 356.0).any() and (verts[:, 1] < 2.0).any()  # both sides of the seam

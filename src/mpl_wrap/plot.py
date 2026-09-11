@@ -962,28 +962,34 @@ def fill_around(
     x: Any,
     y: Any,
     width: Any,
+    *,
+    wrapx: WrapSpec = None,
+    wrapy: WrapSpec = None,
     **kwargs: Any,
 ) -> WrapFillBetween:
-    """Fill a corridor of constant width around a longitude/latitude track.
+    """Fill a corridor of constant width around a track.
 
-    The corridor extends a fixed distance either side of the track, measured on
-    the sphere perpendicular to it, so it keeps its width wherever the track
-    turns and crosses a pole intact. Latitude past a pole is folded over it, as
-    everywhere in mpl_wrap, so a continuous ground track goes straight in. The
-    band is built as a closed region on the sphere and covers the same ground
-    in every projection. Needs shapely.
+    The corridor extends a fixed distance either side of the track, measured
+    perpendicular to it, so it keeps its width wherever the track turns. On a
+    geographic axes the distance is in degrees of arc on the sphere, latitude
+    past a pole is folded over it, and the corridor crosses a pole intact. On
+    any other axes the distance is in data units, which takes x and y to share
+    a unit. Either way the band is built as one closed region and folded into
+    the window(s), so it fills once. Needs shapely.
 
     Parameters
     ----------
     ax : matplotlib.axes.Axes
-        A geographic axes: a cartopy ``GeoAxes``, or any axes after
-        ``set_wrap(ax, geographic=True)``.
+        The axes to plot on.
     x, y : array-like
-        The track's longitude and latitude in degrees, latitude possibly past
-        the poles.
+        The track, continuous (unwrapped). Longitude and latitude in degrees
+        on a geographic axes, latitude possibly past the poles.
     width : float or array-like
-        Half-width of the corridor in degrees of arc, one value or one per
-        point.
+        Half-width of the corridor, one value or one per point, in degrees of
+        arc on a geographic axes and in data units otherwise.
+    wrapx, wrapy : (min, max) or False, optional
+        Wrap windows, as for `fill_between_wrapped`. On a geographic axes
+        ``wrapx`` defaults to (-180, 180) and ``wrapy`` is ignored.
     **kwargs
         Forwarded to the ``FillBetweenPolyCollection`` (color, alpha, ...), as
         in ``ax.fill_between``.
@@ -995,28 +1001,30 @@ def fill_around(
         rebuilds it around a new track.
     """
     g = geo.setup(ax, kwargs)
-    if not g.on:
-        raise TypeError(
-            "fill_around() needs a geographic axes: its width is measured on the "
-            "globe. Use a cartopy GeoAxes or set_wrap(ax, geographic=True), or "
-            "fill_between_wrapped() for a band in data coordinates."
-        )
-    wx, _ = _geo_windows(g, *_windows(ax, None, None))
-    limits = geo.pole_limits(ax)
-    lon_min = geo.LON_MIN if wx is None else float(wx[0])
+    wx, wy = _geo_windows(g, *_windows(ax, wrapx, wrapy))
+    if g.on:
+        limits = geo.pole_limits(ax)
+        lon_min = geo.LON_MIN if wx is None else float(wx[0])
 
-    def region(
-        t_v: np.ndarray, f1_v: np.ndarray, _f2: np.ndarray, _along_lon: bool
-    ) -> tuple[np.ndarray, np.ndarray]:
-        # A corridor is set by one curve, so the band's second edge is unused.
-        return geo.region_path(geo.corridor_region(t_v, f1_v, width, limits, lon_min))
+        def region(
+            t_v: np.ndarray, f1_v: np.ndarray, _f2: np.ndarray, _along_lon: bool
+        ) -> tuple[np.ndarray, np.ndarray]:
+            # A corridor is set by one curve, so the band's second edge is unused.
+            return geo.region_path(geo.corridor_region(t_v, f1_v, width, limits, lon_min))
+
+    else:
+
+        def region(
+            t_v: np.ndarray, f1_v: np.ndarray, _f2: np.ndarray, _along_lon: bool
+        ) -> tuple[np.ndarray, np.ndarray]:
+            return geo.region_path(geo.plane_corridor_region(t_v, f1_v, width, wx, wy))
 
     kwargs = _next_fill_color(ax, kwargs)
     x = _to_num(ax.xaxis, x)
     y = _to_num(ax.yaxis, y)
     band = WrapFillBetween("x", x, y, y, region=region, **kwargs)
     ax.add_collection(band, autolim=g.crs is None)
-    _window_clip(ax, band, wx, None, g.crs)
+    _window_clip(ax, band, wx, wy, g.crs)
     return band
 
 

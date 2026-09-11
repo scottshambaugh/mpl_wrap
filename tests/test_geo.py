@@ -267,12 +267,6 @@ def corridor_of(lon, lat, width=2.696, limits=(geo.LAT_MIN, geo.LAT_MAX)):
     return geo.corridor_region(lon, lat, width, limits)
 
 
-def test_fill_around_needs_a_geographic_axes() -> None:
-    _, ax = plt.subplots()
-    with pytest.raises(TypeError, match="geographic"):
-        fill_around(ax, [0.0, 10.0], [0.0, 10.0], 2.696)
-
-
 def test_fill_around_on_a_plain_geographic_axes() -> None:
     """Off a GeoAxes the corridor lands in the longitude window, with data limits."""
     _, ax = plt.subplots()

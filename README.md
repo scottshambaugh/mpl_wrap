@@ -75,9 +75,8 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `stairs_wrapped(ax, values, edges)`      | `ax.stairs`       |
 | `errorbar_wrapped(ax, x, y, yerr, xerr)` | `ax.errorbar`     |
 
-Plus `fill_around(ax, x, y, width)`, a corridor of constant width around a
-longitude/latitude track. See
-[Geographic data](#geographic-data-longitude-and-latitude).
+Plus `fill_around(ax, x, y, width)`, a corridor of constant `width` around a track.
+It needs *shapely* (`pip install mpl_wrap[geo]`).
 
 Each returns the same artist type as the method it mirrors, in the same `Axes`
 container. The two span helpers return a *list* of `Rectangle`, since a band
@@ -172,9 +171,9 @@ scatter_wrapped(ax, lon[::40], lat[::40])
   <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/geo_demo.png" alt="A ground track crossing the poles and the dateline on a Robinson projection" width="600">
 </p>
 
-`fill_around(ax, x, y, width)` fills a corridor of constant `width` (in degrees
-of arc) around a track. It needs *shapely* installed for geographic axes, which
-cartopy already installs. Without cartopy, use `pip install mpl_wrap[geo]`.
+On a geographic axes `fill_around`'s `width` is in degrees of arc on the
+sphere, and the corridor crosses the poles intact. The filled helpers need
+shapely here, which cartopy already installs.
 
 ### Radians
 

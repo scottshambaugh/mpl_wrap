@@ -237,25 +237,9 @@ def to_sphere(
     leaves the region and its area unchanged.
     """
     shapely = _shapely()
-    affine_transform, box = shapely.affinity.affine_transform, shapely.box
+    affine_transform = shapely.affinity.affine_transform
     if shape.is_empty:
         return shapely.Polygon()
-
-    def tiles(shape: Any, vertical: bool, move: Any) -> Any:
-        """Cut the shape into period-wide strips and move each one into range."""
-        west, south, east, north = shape.bounds
-        low, high = (south, north) if vertical else (west, east)
-        period = _LAT_PERIOD if vertical else 2 * _ANTIPODE
-        origin = LAT_MIN if vertical else lon_min
-        pieces = []
-        first, last = (int(np.floor((v - origin) / period)) for v in (low, high))
-        for k in range(first, last + 1):
-            lo, hi = origin + period * k, origin + period * (k + 1)
-            strip = box(west, lo, east, hi) if vertical else box(lo, south, hi, north)
-            piece = shape.intersection(strip)
-            if not piece.is_empty:
-                pieces.append(move(piece, k))
-        return _polygons(pieces)
 
     def unfold_pole(piece: Any, m: int) -> Any:
         # An odd band is reflected over the pole and onto the antipodal meridian.
@@ -266,14 +250,99 @@ def to_sphere(
     def unturn(piece: Any, k: int) -> Any:
         return affine_transform(piece, [1, 0, 0, 1, -2 * _ANTIPODE * k, 0])
 
-    sphere = tiles(shape, vertical=True, move=unfold_pole)
+    sphere = _tiles(shape, True, LAT_MIN, _LAT_PERIOD, unfold_pole)
     if sphere.is_empty:
         return shapely.Polygon()
-    world = tiles(sphere, vertical=False, move=unturn)
+    world = _tiles(sphere, False, lon_min, 2 * _ANTIPODE, unturn)
     if world.is_empty:
         return shapely.Polygon()
-    window = box(lon_min, limits[0], lon_min + 2 * _ANTIPODE, limits[1])
+    window = shapely.box(lon_min, limits[0], lon_min + 2 * _ANTIPODE, limits[1])
     return world.intersection(window).segmentize(_MAX_EDGE)
+
+
+def _tiles(shape: Any, vertical: bool, origin: float, period: float, move: Any) -> Any:
+    """Cut a shape into period-wide strips along one axis and move each into range.
+
+    ``move(piece, k)`` returns strip ``k`` placed in the base period, where
+    strip 0 starts at ``origin``.
+    """
+    box = _shapely().box
+    west, south, east, north = shape.bounds
+    low, high = (south, north) if vertical else (west, east)
+    pieces = []
+    first, last = (int(np.floor((v - origin) / period)) for v in (low, high))
+    for k in range(first, last + 1):
+        lo, hi = origin + period * k, origin + period * (k + 1)
+        strip = box(west, lo, east, hi) if vertical else box(lo, south, hi, north)
+        piece = shape.intersection(strip)
+        if not piece.is_empty:
+            pieces.append(move(piece, k))
+    return _polygons(pieces)
+
+
+def to_window(shape: Any, wrapx: Any, wrapy: Any) -> Any:
+    """Fold a polygon drawn in the unwrapped plane into the wrap window(s).
+
+    Along each wrapped axis the shape is cut at every period boundary and the
+    pieces are translated into the window and unioned. An unwrapped axis
+    (window None) is left alone.
+    """
+    translate = _shapely().affinity.translate
+    for vertical, window in ((False, wrapx), (True, wrapy)):
+        if window is None or shape.is_empty:
+            continue
+        lo, hi = (float(v) for v in window)
+        period = hi - lo
+
+        def move(piece: Any, k: int, vertical: bool = vertical, period: float = period) -> Any:
+            return (
+                translate(piece, yoff=-period * k)
+                if vertical
+                else translate(piece, xoff=-period * k)
+            )
+
+        shape = _tiles(shape, vertical, lo, period, move)
+    return shape
+
+
+def plane_corridor_region(
+    x: np.ndarray, y: np.ndarray, width: Any, wrapx: Any = None, wrapy: Any = None
+) -> Any:
+    """The closed region a corridor of constant width covers in the data plane.
+
+    ``width`` is the half-width in data units, offset perpendicular to the
+    track, which takes x and y to share a unit. Each leg contributes a
+    rectangle and each interior vertex a round join, the ends are flat, and the
+    corridor is broken at non-finite samples. The result is folded into the
+    wrap window(s) by `to_window`.
+    """
+    shapely = _shapely()
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if len(x) < 2:  # no pair of points, so no direction to offset from
+        return shapely.Polygon()
+    half = np.broadcast_to(np.asarray(width, dtype=float), x.shape)
+    finite = np.isfinite(x) & np.isfinite(y)
+
+    dx, dy = np.diff(np.where(finite, x, 0.0)), np.diff(np.where(finite, y, 0.0))
+    length = np.hypot(dx, dy)
+    leg = finite[:-1] & finite[1:] & (length > 0)
+    length = np.where(leg, length, 1.0)
+    normal = np.column_stack([-dy / length, dx / length])
+    at = np.column_stack([x, y])
+    pieces = []
+    for i in np.nonzero(leg)[0]:
+        offset0, offset1 = half[i] * normal[i], half[i + 1] * normal[i]
+        pieces.append(
+            shapely.Polygon(
+                [at[i] + offset0, at[i + 1] + offset1, at[i + 1] - offset1, at[i] - offset0]
+            )
+        )
+    for i in np.nonzero(leg[:-1] & leg[1:])[0] + 1:
+        pieces.append(shapely.Point(at[i]).buffer(half[i]))
+    if not pieces:
+        return shapely.Polygon()
+    return to_window(_polygons(pieces), wrapx, wrapy)
 
 
 def region_path(geometry: Any) -> tuple[np.ndarray, np.ndarray]:
@@ -306,9 +375,11 @@ def corridor_region(
     """The closed region a corridor of constant width covers on the globe.
 
     ``width`` is the half-width in degrees of arc, offset perpendicular to the
-    track on a sphere. Latitudes past a pole are folded over it first, so a
-    continuous ground track goes straight in. Where the track runs over a pole
-    the corridor includes the polar cap within ``width`` of it.
+    track on a sphere. Each point is offset along the bearing of the leg leaving
+    it, which suits a smoothly sampled track such as a ground track. Latitudes
+    past a pole are folded over it first, so a continuous ground track goes
+    straight in. Where the track runs over a pole the corridor includes the
+    polar cap within ``width`` of it.
     """
     shapely = _shapely()
     lon = np.asarray(lon, dtype=float)

@@ -10,8 +10,9 @@
 * Geographic mode for longitude/latitude data: latitude past a pole
   is folded over it onto the antipodal meridian. On by default on a cartopy
   `GeoAxes`, and available on any axes with the `geographic=True` flag.
-* `fill_around`, filling a corridor of constant width around a lon/lat track,
-  measured perpendicular to it on the sphere
+* `fill_around`, filling a corridor of constant width around a track, measured
+  perpendicular to it: in data units on a normal axes, and in degrees of arc
+  on the sphere on a geographic one. Needs shapely
 
 ### Changed
 * `errorbar_wrapped` passes the caller's `transform` to its bars and caps
