@@ -149,7 +149,7 @@ plot_wrapped(ax, times, signal)
 
 When wrapping around a globe, latitude is not periodic. A track that runs past the north pole comes back down the opposite side of the Earth, 180 deg away in longitude.
 With `geographic=True`, `mpl_wrap` folds latitude at the poles and wraps longitude
-at the antimeridian. On a cartopy `GeoAxes` this is on by default, but it works with
+at the antimeridian. The helper functions `fold_poles` and `unfold_poles` can be used to do this operation on the data directly. On a cartopy `GeoAxes` this is on by default, but it works with
 normal axes as well.
 
 ```python
@@ -174,19 +174,10 @@ scatter_wrapped(ax, lon[::40], lat[::40])
 </p>
 
 On a geographic axes `fill_around`'s `width` is in degrees of arc on the
-sphere, and the corridor crosses the poles intact. The filled helpers need
-shapely here, which cartopy already installs.
-
-Geodetic routines keep latitude within the poles, so a track from one arrives
-with a 180° jump in longitude wherever it passed over a pole. `unfold_poles`
-undoes that, making the track continuous past the poles as the helpers expect:
-
-```python
-lon, lat = unfold_poles(lon, lat)  # then plot_wrapped(ax, lon, lat) as above
-```
+sphere. Geographic fills need shapely installed, which cartopy already installs.
 
 cartopy's path transform emits a shapely `RuntimeWarning` for every NaN-broken
-line on a `GeoAxes`, which is every seam crossing. `mpl_wrap` silences that one
+line on a `GeoAxes`, which is every edge crossing. `mpl_wrap` silences that one
 message when it draws on a `GeoAxes`. A plain `ax.plot` with a NaN in it does
 the same thing and is not affected.
 
