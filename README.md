@@ -177,6 +177,14 @@ On a geographic axes `fill_around`'s `width` is in degrees of arc on the
 sphere, and the corridor crosses the poles intact. The filled helpers need
 shapely here, which cartopy already installs.
 
+Geodetic routines keep latitude within the poles, so a track from one arrives
+with a 180° jump in longitude wherever it passed over a pole. `unfold_poles`
+undoes that, making the track continuous past the poles as the helpers expect:
+
+```python
+lon, lat = unfold_poles(lon, lat)  # then plot_wrapped(ax, lon, lat) as above
+```
+
 ### Radians
 
 Windows that are multiples of π/2 are automatically detected and labeled with ticks that are fractions of π.

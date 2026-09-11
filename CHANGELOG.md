@@ -10,6 +10,9 @@
 * `wrap_line(..., return_samples=True)` also returns the output index of each
   input sample, so markers, colours or labels can be put back on the data
   points after seam routing inserts vertices
+* `unfold_poles`, the inverse of the pole folding: it makes a geodetic track,
+  whose latitude stays within the poles and whose longitude jumps by 180
+  degrees at each pole pass, continuous past the poles as the helpers expect
 
 ### Changed
 ### Removed

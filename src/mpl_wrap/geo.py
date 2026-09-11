@@ -26,7 +26,9 @@ from typing import Any, NamedTuple
 import numpy as np
 from matplotlib.axes import Axes
 
-__all__: list[str] = []
+__all__ = [
+    "unfold_poles",
+]
 
 # Latitude is bounded by the poles and is not periodic: a track running past a
 # pole comes back down the far side, at the antipodal longitude.
@@ -98,6 +100,60 @@ def fold_poles(lon: np.ndarray, lat: np.ndarray) -> tuple[np.ndarray, np.ndarray
         np.where(reflected, lon + _ANTIPODE, lon),
         np.where(reflected, -resid, resid),
     )
+
+
+def unfold_poles(lon: Any, lat: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Make a folded longitude/latitude track continuous past the poles.
+
+    Geodetic routines keep latitude within the poles, so a track passing over
+    a pole arrives as a jump of 180 degrees in longitude at the pole. This is
+    the inverse of `fold_poles`: at each such pass the latitude continues past
+    the pole and the longitude is shifted back to the meridian the track was
+    on, so the result can be passed straight to `plot_wrapped` on a geographic
+    axes. Longitude is also unwrapped across the antimeridian.
+
+    A pass is a step of more than 90 degrees in longitude between consecutive
+    samples, at the pole given by the sign of the latitude there. That takes
+    the track to be sampled finely enough that consecutive samples are within
+    a quarter turn of each other in longitude, as a ground track is. Passes
+    over alternating poles carry the track on past each one, and two passes
+    over the same pole turn it back.
+
+    Parameters
+    ----------
+    lon, lat : array-like
+        Longitude and latitude in degrees, latitude within +/-90.
+
+    Returns
+    -------
+    (np.ndarray, np.ndarray)
+        The continuous longitude and latitude. Non-finite samples pass through
+        and do not count as a pass.
+    """
+    lon = np.asarray(lon, dtype=float)
+    lat = np.asarray(lat, dtype=float)
+    if len(lon) == 0:
+        return lon.copy(), lat.copy()
+    finite = np.isfinite(lon) & np.isfinite(lat)
+    lon_ok, lat_ok = np.where(finite, lon, 0.0), np.where(finite, lat, 0.0)
+    step = (np.diff(lon_ok) + _ANTIPODE) % (2 * _ANTIPODE) - _ANTIPODE
+    passes = (np.abs(step) > 0.5 * _ANTIPODE) & finite[:-1] & finite[1:]
+    # From an even band the north pole leads up and the south pole down, and
+    # from an odd band the reverse, so alternating poles carry the track on
+    # past each one and the same pole twice turns it back.
+    at = np.nonzero(passes)[0]
+    north = lat_ok[at] + lat_ok[at + 1] > 0
+    even = np.arange(len(at)) % 2 == 0
+    steps = np.zeros(len(lon) - 1)
+    steps[at] = np.where(north == even, 1.0, -1.0)
+    band = np.concatenate([[0.0], np.cumsum(steps)])
+    odd = band % 2 != 0
+    out_lat = np.where(odd, _LAT_PERIOD * band - lat, lat + _LAT_PERIOD * band)
+    out_lon = np.where(odd, lon - _ANTIPODE, lon)
+    # With the passes undone, what is left is ordinary antimeridian wrapping.
+    step = (np.diff(np.where(finite, out_lon, 0.0)) + _ANTIPODE) % (2 * _ANTIPODE) - _ANTIPODE
+    unwrapped = out_lon[0] + np.concatenate([[0.0], np.cumsum(step)])
+    return np.where(finite, unwrapped, lon), np.where(finite, out_lat, lat)
 
 
 def pole_polyline(lon: np.ndarray, lat: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

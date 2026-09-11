@@ -1,6 +1,6 @@
 import numpy as np
 
-from mpl_wrap import wrap_line, wrap_points
+from mpl_wrap import unfold_poles, wrap_line, wrap_points
 from mpl_wrap.data import _wrap_polyline
 from mpl_wrap.geo import fold_poles
 
@@ -172,3 +172,39 @@ def test_wrap_line_return_samples_indexes_the_input_points() -> None:
     assert np.allclose(ys[samples], [350.0, 10.0, 30.0])
     assert len(xs) == 6  # the crossing inserted three vertices
     assert len(wrap_line(x, y, wrapy=WRAP360)) == 2  # the default is unchanged
+
+
+def test_unfold_poles_inverts_fold_poles_on_a_polar_orbit() -> None:
+    u = np.linspace(0.0, 1080.0, 800)  # three turns, past both poles many times
+    lon = -160.0 + 0.3 * u
+    lat = u
+    fold_lon, fold_lat = fold_poles(lon, lat)
+    fold_lon = (fold_lon + 180.0) % 360.0 - 180.0  # as a geodetic routine gives it
+    out_lon, out_lat = unfold_poles(fold_lon, fold_lat)
+    assert np.allclose(out_lat, lat)
+    assert np.allclose(out_lon, lon)  # continuous, not merely equal mod 360
+
+
+def test_unfold_poles_leaves_a_track_that_misses_the_poles_alone() -> None:
+    lon = np.linspace(-170.0, 170.0, 50)
+    lat = 60.0 * np.sin(np.linspace(0.0, 6.0, 50))
+    out_lon, out_lat = unfold_poles(lon, lat)
+    assert np.allclose(out_lat, lat) and np.allclose(out_lon, lon)
+
+
+def test_unfold_poles_unwraps_the_antimeridian_and_passes_nans() -> None:
+    lon = np.array([170.0, 179.0, -179.0, np.nan, -170.0])
+    lat = np.array([0.0, 1.0, 2.0, np.nan, 4.0])
+    out_lon, out_lat = unfold_poles(lon, lat)
+    assert np.allclose(out_lon[:3], [170.0, 179.0, 181.0])
+    assert np.isnan(out_lon[3]) and np.isnan(out_lat[3])
+    assert np.allclose(out_lat[[0, 1, 2, 4]], [0.0, 1.0, 2.0, 4.0])
+
+
+def test_unfold_poles_turns_back_over_a_repeated_pole() -> None:
+    # Up over the north pole and straight back over it: the unfolded latitude
+    # peaks past 90 and returns, rather than climbing on towards 270.
+    lat = np.array([70.0, 80.0, 89.0, 89.0, 80.0, 70.0, 80.0, 89.0, 89.0, 80.0, 70.0])
+    lon = np.array([0.0, 0.0, 0.0, 180.0, 180.0, 180.0, 180.0, 180.0, 0.0, 0.0, 0.0])
+    _, out_lat = unfold_poles(lon, lat)
+    assert np.allclose(out_lat, [70, 80, 89, 91, 100, 110, 100, 91, 89, 80, 70])
