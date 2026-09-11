@@ -119,7 +119,9 @@ ax.plot_wrapped(t, angle)
 
 The data processing is also exposed on its own: `wrap_line` and `wrap_points`
 take data plus windows and return the wrapped arrays without plotting anything
-(also available as `AxesWrap` methods).
+(also available as `AxesWrap` methods). `wrap_line(..., return_samples=True)`
+also returns where each input sample landed in the output, for putting markers
+or colours back on the data points after the seam routing inserts vertices.
 
 ### Wrapping x, y, or both
 

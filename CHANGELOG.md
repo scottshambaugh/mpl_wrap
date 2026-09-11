@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 ### Added
+* `wrap_line(..., return_samples=True)` also returns the output index of each
+  input sample, so markers, colours or labels can be put back on the data
+  points after seam routing inserts vertices
+
 ### Changed
 ### Removed
 

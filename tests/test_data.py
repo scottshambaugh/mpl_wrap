@@ -161,3 +161,14 @@ def test_wrap_points_geographic_folds_and_wraps_longitude() -> None:
     # 170 + 180 = 350, which folds back to -10
     assert np.allclose(xs, [-10.0])
     assert np.allclose(ys, [80.0])
+
+
+def test_wrap_line_return_samples_indexes_the_input_points() -> None:
+    x = [0.0, 1.0, 2.0]
+    y = [350.0, 370.0, 390.0]  # one seam crossing between the first two samples
+    xs, ys, samples = wrap_line(x, y, wrapy=WRAP360, return_samples=True)
+    assert len(samples) == 3
+    assert np.allclose(xs[samples], x)
+    assert np.allclose(ys[samples], [350.0, 10.0, 30.0])
+    assert len(xs) == 6  # the crossing inserted three vertices
+    assert len(wrap_line(x, y, wrapy=WRAP360)) == 2  # the default is unchanged

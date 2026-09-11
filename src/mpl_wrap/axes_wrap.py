@@ -91,8 +91,14 @@ class AxesWrapBase(Axes):
         return _plot.errorbar_wrapped(self, *args, **kwargs)
 
     def wrap_line(
-        self, x: Any, y: Any, *, wrapx: WrapSpec = None, wrapy: WrapSpec = None
-    ) -> tuple[np.ndarray, np.ndarray]:
+        self,
+        x: Any,
+        y: Any,
+        *,
+        wrapx: WrapSpec = None,
+        wrapy: WrapSpec = None,
+        return_samples: bool = False,
+    ) -> tuple[np.ndarray, ...]:
         """Return a polyline's wrapped data without plotting it.
 
         The axes-aware form of `mpl_wrap.wrap_line`: windows default to those
@@ -102,7 +108,9 @@ class AxesWrapBase(Axes):
         g = _geo.resolve(self)
         x, y, wx, wy = _plot._prepare_xy(self, x, y, wrapx, wrapy)
         wx, wy = _plot._geo_windows(g, wx, wy)
-        return _data.wrap_line(x, y, wrapx=wx, wrapy=wy, geographic=g.on)
+        return _data.wrap_line(
+            x, y, wrapx=wx, wrapy=wy, geographic=g.on, return_samples=return_samples
+        )
 
     def wrap_points(
         self, x: Any, y: Any, *, wrapx: WrapSpec = None, wrapy: WrapSpec = None

@@ -89,7 +89,8 @@ def wrap_line(
     wrapx: Iterable[float] | None = None,
     wrapy: Iterable[float] | None = None,
     geographic: bool = False,
-) -> tuple[np.ndarray, np.ndarray]:
+    return_samples: bool = False,
+) -> tuple[np.ndarray, ...]:
     """Wrap a polyline into the given window(s), without plotting.
 
     Pure data processing: fold a continuous (unwrapped) polyline into the
@@ -109,14 +110,19 @@ def wrap_line(
         at the poles: a segment running past a pole is routed to it, broken,
         and resumed from the pole at the antipodal longitude. ``wrapy`` is
         ignored, and ``wrapx`` defaults to (-180, 180).
+    return_samples : bool, default False
+        Also return the index in the output of each input sample. Seam routing
+        inserts vertices, so this is what puts a marker, colour or label back
+        on the data points.
 
     Returns
     -------
-    (np.ndarray, np.ndarray)
-        The wrapped x and y coordinates, NaN-broken at seam crossings.
+    (np.ndarray, np.ndarray) or (np.ndarray, np.ndarray, np.ndarray)
+        The wrapped x and y coordinates, NaN-broken at seam crossings, and
+        with ``return_samples`` the output index of each input sample.
     """
-    xs, ys, _ = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy, geographic=geographic)
-    return xs, ys
+    xs, ys, samples = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy, geographic=geographic)
+    return (xs, ys, samples) if return_samples else (xs, ys)
 
 
 def _wrap_line_samples(
