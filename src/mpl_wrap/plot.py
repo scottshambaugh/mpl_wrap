@@ -7,6 +7,7 @@ seam crossing instead of drawing jump artifacts. ``set_wrap`` stores a window
 on an axes so subsequent calls pick it up automatically.
 """
 
+import warnings
 from collections.abc import Iterable, Sequence
 from fractions import Fraction
 from typing import Any, Literal
@@ -20,8 +21,9 @@ from matplotlib.container import ErrorbarContainer
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from matplotlib.path import Path
-from matplotlib.ticker import Formatter, Locator, MaxNLocator
+from matplotlib.ticker import Formatter, Locator, MaxNLocator, MultipleLocator
 
+from mpl_wrap import geo
 from mpl_wrap.artists import WrapFillBetween, WrapStepPatch
 from mpl_wrap.data import (
     _band_extent,
@@ -42,6 +44,7 @@ __all__ = [
     "axhspan_wrapped",
     "axvspan_wrapped",
     "errorbar_wrapped",
+    "fill_around",
     "fill_between_wrapped",
     "fill_betweenx_wrapped",
     "hlines_wrapped",
@@ -66,12 +69,25 @@ _WINDOW_ATTR = "_mpl_wrap_windows"
 _STEP_WHERE = ("pre", "post", "mid")
 
 
-def _window_clip(ax: Axes, artist: Any, wrapx: np.ndarray | None, wrapy: np.ndarray | None) -> None:
+def _window_clip(
+    ax: Axes,
+    artist: Any,
+    wrapx: np.ndarray | None,
+    wrapy: np.ndarray | None,
+    crs: Any = None,
+) -> None:
     """Clip an artist to the wrap window(s), a wrapped axis in data, the other full.
 
     Clipping with a Path rather than a Rectangle patch leaves the artist's clip
     box in place, so a window wider than the view cannot spill outside the axes.
+
+    A geographic axes (``crs`` given) clips to the projection boundary, which
+    bounds everything the map can show. A ring in degrees runs to infinity
+    wherever the projection does, such as the pole of a polar stereographic.
     """
+    if crs is not None:
+        artist.set_clip_path(ax.patch)
+        return
     if wrapx is not None and wrapy is not None:
         (x0, x1), (y0, y1), transform = wrapx, wrapy, ax.transData
     elif wrapy is not None:
@@ -154,6 +170,41 @@ def _prepare_xy(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
     """Convert x/y data to numeric arrays and resolve their wrap windows."""
     return (_to_num(ax.xaxis, x), _to_num(ax.yaxis, y), *_windows(ax, wrapx, wrapy))
+
+
+def _clamp_lat(func: str, values: np.ndarray) -> np.ndarray:
+    """Clamp latitudes to the poles, warning if anything was actually out of range."""
+    clamped = np.clip(values, geo.LAT_MIN, geo.LAT_MAX)
+    if not np.array_equal(values, clamped, equal_nan=True):
+        warnings.warn(
+            f"{func}() cannot fill a band across a pole: latitudes outside "
+            f"[{geo.LAT_MIN:g}, {geo.LAT_MAX:g}] were clamped to it.",
+            stacklevel=3,
+        )
+    return clamped
+
+
+def _geo_windows(
+    g: geo.Geo, wrapx: np.ndarray | None, wrapy: np.ndarray | None
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Adapt resolved windows for geographic coordinates.
+
+    Longitude keeps its window, defaulting to the full 360 degrees. Latitude
+    has no window, since it is folded at the poles.
+    """
+    if not g.on:
+        return wrapx, wrapy
+    if wrapx is None:
+        limits = (geo.LON_MIN, geo.LON_MAX) if g.crs is None else g.crs.x_limits
+        wrapx = np.asarray(limits, dtype=float)
+    if wrapx is not None and not np.isclose(wrapx[1] - wrapx[0], 360.0):
+        warnings.warn(
+            f"wrapx spans {wrapx[1] - wrapx[0]:g} degrees on a geographic axes. Longitude "
+            "is periodic over 360, so a shorter window folds points onto meridians "
+            "they are not on.",
+            stacklevel=3,
+        )
+    return wrapx, None
 
 
 # The step sizes matplotlib's MaxNLocator chooses ticks from, per power of ten.
@@ -293,6 +344,7 @@ def set_wrap(
     edge_ticks: bool = True,
     seam_lines: bool = False,
     seam_kwargs: dict[str, Any] | None = None,
+    geographic: bool | None = None,
 ) -> Axes:
     """Store wrap window(s) on an axes so the plotting helpers use them by default.
 
@@ -323,15 +375,27 @@ def set_wrap(
         Draw lines at the window edges of each given window.
     seam_kwargs : dict, optional
         Overrides for the seam line style (default ``color="k", linewidth=0.8``).
+    geographic : bool, optional
+        Treat the data as longitude/latitude in degrees: latitude is folded at
+        the poles, ``wrapy`` is ignored, and ``wrapx`` defaults to (-180, 180).
+        A cartopy ``GeoAxes`` is geographic by default.
 
     Returns
     -------
     matplotlib.axes.Axes
         The same axes, for chaining.
     """
+    if geographic is not None:
+        setattr(ax, geo.GEO_ATTR, bool(geographic))
     windows: dict[str, np.ndarray] = dict(getattr(ax, _WINDOW_ATTR, {}))
+    if wrapx is None and "x" not in windows and geo.geographic(ax) and not geo.is_geoaxes(ax):
+        wrapx = (geo.LON_MIN, geo.LON_MAX)  # a GeoAxes sets its own extent
     style: dict[str, Any] = {"color": "k", "linewidth": 0.8}
     style.update(seam_kwargs or {})
+    # On a GeoAxes the axis methods work in projected units, so limits and seam
+    # lines go through the source CRS once both windows are known.
+    crs = geo.crs_for(ax)
+    given: list[str] = []
     for name, wrap, axis, set_lim, seam in (
         ("x", wrapx, ax.xaxis, ax.set_xlim, ax.axvline),
         ("y", wrapy, ax.yaxis, ax.set_ylim, ax.axhline),
@@ -346,13 +410,31 @@ def set_wrap(
             continue
         w = _to_num(axis, wrap)
         windows[name] = w
-        if set_lims:
+        if set_lims and crs is None:
             set_lim(w[0], w[1])
-        if edge_ticks:
+        if edge_ticks and crs is None:
+            # A GeoAxes has no such ticks: its axis is in projected units.
             _install_edge_ticks(axis, w)
-        if seam_lines:
+        if seam_lines and crs is None:
             seam(w[0], **style)
             seam(w[1], **style)
+        given.append(name)
+    if crs is None and geo.geographic(ax) and "y" not in windows:
+        # Latitude has no window on a geographic axes, but its range is known.
+        if set_lims:
+            ax.set_ylim(geo.LAT_MIN, geo.LAT_MAX)
+        if edge_ticks:
+            ax.yaxis.set_major_locator(MultipleLocator(45.0))
+            _install_edge_ticks(ax.yaxis, np.array([geo.LAT_MIN, geo.LAT_MAX]))
+    if crs is not None and given:
+        if set_lims:
+            geo.set_lims(ax, crs, windows.get("x"), windows.get("y"))
+        if seam_lines:
+            for name in given:
+                w = windows[name]
+                other = windows.get("y" if name == "x" else "x")
+                geo.seam_line(ax, crs, w[0], name == "x", other, style)
+                geo.seam_line(ax, crs, w[1], name == "x", other, style)
     setattr(ax, _WINDOW_ATTR, windows)
     return ax
 
@@ -390,8 +472,10 @@ def plot_wrapped(
     list of matplotlib.lines.Line2D
         The plotted line artists, as from ``ax.plot``.
     """
+    g = geo.setup(ax, kwargs)
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
-    xs, ys, samples = _wrap_line_samples(x, y, wrapx=wx, wrapy=wy)
+    wx, wy = _geo_windows(g, wx, wy)
+    xs, ys, samples = _wrap_line_samples(x, y, wrapx=wx, wrapy=wy, geographic=g.on)
     return _plot_marked(ax, xs, ys, samples, args, kwargs)
 
 
@@ -429,8 +513,11 @@ def scatter_wrapped(
     matplotlib.collections.PathCollection
         The scatter artist, as from ``ax.scatter``.
     """
+    g = geo.setup(ax, kwargs)
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
-    return ax.scatter(*wrap_points(x, y, wrapx=wx, wrapy=wy), *args, **kwargs)
+    wx, wy = _geo_windows(g, wx, wy)
+    pts = wrap_points(x, y, wrapx=wx, wrapy=wy, geographic=g.on)
+    return ax.scatter(*pts, *args, **kwargs)
 
 
 def hlines_wrapped(
@@ -617,6 +704,9 @@ def _wrapped_span(
     kwargs: dict[str, Any],
 ) -> list[Rectangle]:
     """Fold a span into the window and draw its piece(s) with ax.axhspan / ax.axvspan."""
+    if geo.crs_for(ax) is not None:
+        func = "axvspan_wrapped" if vertical else "axhspan_wrapped"
+        raise NotImplementedError(f"{func}() is not supported on a geographic axes")
     name = "x" if vertical else "y"
     axis = ax.xaxis if vertical else ax.yaxis
     bounds = _to_num(axis, [lo, hi])
@@ -657,7 +747,8 @@ def _wrapped_lines(
     pos = _to_num(pos_axis, pos)
     lo = _to_num(span_axis, lo)
     hi = _to_num(span_axis, hi)
-    wx, wy = _windows(ax, wrapx, wrapy)
+    g = geo.setup(ax, kwargs)
+    wx, wy = _geo_windows(g, *_windows(ax, wrapx, wrapy))
     pos, lo, hi = np.broadcast_arrays(np.atleast_1d(pos), np.atleast_1d(lo), np.atleast_1d(hi))
 
     positions: list[float] = []
@@ -667,7 +758,7 @@ def _wrapped_lines(
     for i, (p, a, b) in enumerate(zip(pos, lo, hi)):
         span, fixed = np.array([a, b], dtype=float), np.array([p, p], dtype=float)
         seg_x, seg_y = (span, fixed) if horizontal else (fixed, span)
-        for piece in _wrap_to_segments(seg_x, seg_y, wx, wy):
+        for piece in _wrap_to_segments(seg_x, seg_y, wx, wy, g.on):
             along, across = (piece[:, 0], piece[:, 1]) if horizontal else (piece[:, 1], piece[:, 0])
             positions.append(across[0])
             starts.append(along.min())
@@ -797,6 +888,16 @@ def fill_betweenx_wrapped(
     )
 
 
+def _next_fill_color(ax: Axes, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Take the next fill colour when none is given, as ``ax.fill_between`` does."""
+    if mpl.rcParams["_internal.classic_mode"]:  # type: ignore[index]
+        return kwargs
+    kwargs = mpl.cbook.normalize_kwargs(kwargs, Collection)
+    if not any(c in kwargs for c in ("color", "facecolor")):
+        kwargs["facecolor"] = ax._get_patches_for_fill.get_next_color()  # type: ignore[attr-defined]
+    return kwargs
+
+
 def _fill_band(
     ax: Axes,
     t_direction: Literal["x", "y"],
@@ -815,15 +916,27 @@ def _fill_band(
     if step is not None:
         _check_step_where(func, "step", step)
     t_axis, f_axis = (ax.xaxis, ax.yaxis) if t_direction == "x" else (ax.yaxis, ax.xaxis)
+    g = geo.setup(ax, kwargs)
     t = _to_num(t_axis, t)
     f1 = _to_num(f_axis, f1)
     f2 = _to_num(f_axis, f2)
-    wx, wy = _windows(ax, wrapx, wrapy)
-    # Take the next fill colour when none is given, as ax.fill_between does.
-    if not mpl.rcParams["_internal.classic_mode"]:  # type: ignore[index]
-        kwargs = mpl.cbook.normalize_kwargs(kwargs, Collection)
-        if not any(c in kwargs for c in ("color", "facecolor")):
-            kwargs["facecolor"] = ax._get_patches_for_fill.get_next_color()  # type: ignore[attr-defined]
+    wx, wy = _geo_windows(g, *_windows(ax, wrapx, wrapy))
+
+    kwargs = _next_fill_color(ax, kwargs)
+    region = None
+    if g.on:
+        # A band on a globe is built as one closed region mapped onto the
+        # sphere, which lands it in the window with no tiling.
+        limits = geo.pole_limits(ax)
+        lon_min = geo.LON_MIN if wx is None else float(wx[0])
+
+        def region(
+            t_v: np.ndarray, f1_v: np.ndarray, f2_v: np.ndarray, along_lon: bool
+        ) -> tuple[np.ndarray, np.ndarray]:
+            shape = geo.band_region(t_v, f1_v, f2_v, along_lon, limits, lon_min)
+            return geo.region_path(shape)
+
+        wx = wy = None
     band = WrapFillBetween(
         t_direction,
         t,
@@ -834,10 +947,76 @@ def _fill_band(
         step=step,
         wrapx=wx,
         wrapy=wy,
+        region=region,
         **kwargs,
     )
-    ax.add_collection(band)
-    _window_clip(ax, band, wx, wy)
+    # On a projection the vertices are degrees against a view in metres, so
+    # they carry no data limits. A plain geographic axes takes them as usual.
+    ax.add_collection(band, autolim=g.crs is None)
+    _window_clip(ax, band, wx, wy, g.crs)
+    return band
+
+
+def fill_around(
+    ax: Axes,
+    x: Any,
+    y: Any,
+    width: Any,
+    **kwargs: Any,
+) -> WrapFillBetween:
+    """Fill a corridor of constant width around a longitude/latitude track.
+
+    The corridor extends a fixed distance either side of the track, measured on
+    the sphere perpendicular to it, so it keeps its width wherever the track
+    turns and crosses a pole intact. Latitude past a pole is folded over it, as
+    everywhere in mpl_wrap, so a continuous ground track goes straight in. The
+    band is built as a closed region on the sphere and covers the same ground
+    in every projection. Needs shapely.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        A geographic axes: a cartopy ``GeoAxes``, or any axes after
+        ``set_wrap(ax, geographic=True)``.
+    x, y : array-like
+        The track's longitude and latitude in degrees, latitude possibly past
+        the poles.
+    width : float or array-like
+        Half-width of the corridor in degrees of arc, one value or one per
+        point.
+    **kwargs
+        Forwarded to the ``FillBetweenPolyCollection`` (color, alpha, ...), as
+        in ``ax.fill_between``.
+
+    Returns
+    -------
+    WrapFillBetween
+        The band artist, as from `fill_between_wrapped`. ``set_data(x, y, y)``
+        rebuilds it around a new track.
+    """
+    g = geo.setup(ax, kwargs)
+    if not g.on:
+        raise TypeError(
+            "fill_around() needs a geographic axes: its width is measured on the "
+            "globe. Use a cartopy GeoAxes or set_wrap(ax, geographic=True), or "
+            "fill_between_wrapped() for a band in data coordinates."
+        )
+    wx, _ = _geo_windows(g, *_windows(ax, None, None))
+    limits = geo.pole_limits(ax)
+    lon_min = geo.LON_MIN if wx is None else float(wx[0])
+
+    def region(
+        t_v: np.ndarray, f1_v: np.ndarray, _f2: np.ndarray, _along_lon: bool
+    ) -> tuple[np.ndarray, np.ndarray]:
+        # A corridor is set by one curve, so the band's second edge is unused.
+        return geo.region_path(geo.corridor_region(t_v, f1_v, width, limits, lon_min))
+
+    kwargs = _next_fill_color(ax, kwargs)
+    x = _to_num(ax.xaxis, x)
+    y = _to_num(ax.yaxis, y)
+    band = WrapFillBetween("x", x, y, y, region=region, **kwargs)
+    ax.add_collection(band, autolim=g.crs is None)
+    _window_clip(ax, band, wx, None, g.crs)
     return band
 
 
@@ -880,9 +1059,11 @@ def step_wrapped(
         The plotted line artists, as from ``ax.step``.
     """
     _check_step_where("step_wrapped", "where", where)
+    g = geo.setup(ax, kwargs)
     x, y, wx, wy = _prepare_xy(ax, x, y, wrapx, wrapy)
+    wx, wy = _geo_windows(g, wx, wy)
     step_x, step_y, steps = _step_polyline_samples(x, y, where)
-    xs, ys, pos = _wrap_line_samples(step_x, step_y, wrapx=wx, wrapy=wy)
+    xs, ys, pos = _wrap_line_samples(step_x, step_y, wrapx=wx, wrapy=wy, geographic=g.on)
     return _plot_marked(ax, xs, ys, pos[steps], args, kwargs)
 
 
@@ -954,7 +1135,17 @@ def stairs_wrapped(
     values = _to_num(value_axis, values)
     edges = np.arange(len(values) + 1, dtype=float) if edges is None else _to_num(edge_axis, edges)
     base = None if baseline is None else _to_num(value_axis, baseline)
-    wx, wy = _windows(ax, wrapx, wrapy)
+    g = geo.setup(ax, kwargs)
+    wx, wy = _geo_windows(g, *_windows(ax, wrapx, wrapy))
+    if g.on:
+        # The latitudes are the values of a vertical staircase and the edges of
+        # a horizontal one.
+        if vertical:
+            values = _clamp_lat("stairs_wrapped", values)
+            if base is not None:
+                base = _clamp_lat("stairs_wrapped", base)
+        else:
+            edges = _clamp_lat("stairs_wrapped", edges)
 
     # Colour defaults exactly as ax.stairs picks them.
     color = kwargs.pop("color", None)
@@ -991,14 +1182,15 @@ def stairs_wrapped(
     if fill:
         # add_patch would walk every tiled vertex, so add it and set the limits here.
         ax.add_artist(patch)
-        _window_clip(ax, patch, wx, wy)
-        verts = np.asarray(patch.get_path().vertices, dtype=float)
-        ax.update_datalim(_band_extent(verts, wx, wy).get_points())
+        _window_clip(ax, patch, wx, wy, g.crs)
+        if g.crs is None:  # on a projection the vertices carry no data limits
+            verts = np.asarray(patch.get_path().vertices, dtype=float)
+            ax.update_datalim(_band_extent(verts, wx, wy).get_points())
     else:
         ax.add_patch(patch)
     # The baseline anchors autoscaling as in ax.stairs, but only on an unwrapped
     # axis, where it is drawn at its own value.
-    if base is not None and (wy if vertical else wx) is None:
+    if base is not None and g.crs is None and (wy if vertical else wx) is None:
         low = float(np.min(base))
         (patch.sticky_edges.y if vertical else patch.sticky_edges.x).append(low)
         ax.update_datalim([(edges[0], low) if vertical else (low, edges[0])])
@@ -1057,7 +1249,9 @@ def errorbar_wrapped(
     matplotlib.container.ErrorbarContainer
         Container of (data line, caplines, barlinecols), as from ``ax.errorbar``.
     """
+    g = geo.setup(ax, kwargs)
     x, y, wrapx, wrapy = _prepare_xy(ax, x, y, wrapx, wrapy)
+    wrapx, wrapy = _geo_windows(g, wrapx, wrapy)
     label = kwargs.pop("label", None)
     kwargs.setdefault("zorder", 2)
 
@@ -1066,7 +1260,7 @@ def errorbar_wrapped(
     # label, so the legend shows one bar-and-marker entry.
     data_line: Line2D | None = None
     if fmt.lower() != "none":
-        xs, ys, samples = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy)
+        xs, ys, samples = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy, geographic=g.on)
         drawn = _plot_marked(ax, xs, ys, samples, (fmt,), {**kwargs, "label": "_nolegend_"})
         data_line = drawn[0] if drawn else None
         if data_line is not None:
@@ -1082,16 +1276,20 @@ def errorbar_wrapped(
         capsize = mpl.rcParams["errorbar.capsize"]
     barlinecols: list[LineCollection] = []
     caplines: list[Line2D] = []
+    # The bars and caps carry their own style but share the caller's transform,
+    # which on a GeoAxes places them in degrees.
+    shared_kwargs = {k: kwargs[k] for k in ("transform",) if k in kwargs}
 
     def add_caps(cx: np.ndarray, cy: np.ndarray, marker: str) -> None:
         if capsize > 0:
             (cap,) = ax.plot(
-                *wrap_points(cx, cy, wrapx=wrapx, wrapy=wrapy),
+                *wrap_points(cx, cy, wrapx=wrapx, wrapy=wrapy, geographic=g.on),
                 linestyle="none",
                 marker=marker,
                 ms=2.0 * capsize,  # as in ax.errorbar, capsize is the half-width
                 color=bar_color,
                 markeredgecolor=bar_color,
+                **shared_kwargs,
             )
             caplines.append(cap)
 
@@ -1106,8 +1304,8 @@ def errorbar_wrapped(
         fixed = np.repeat(positions, 3)
         extents = _nan_joined_extents(lo, hi)
         bar_x, bar_y = (extents, fixed) if horizontal else (fixed, extents)
-        segs = _wrap_to_segments(bar_x, bar_y, wrapx, wrapy)
-        bars = LineCollection(segs, colors=bar_color, lw=bar_lw)
+        segs = _wrap_to_segments(bar_x, bar_y, wrapx, wrapy, g.on)
+        bars = LineCollection(segs, colors=bar_color, lw=bar_lw, **shared_kwargs)
         ax.add_collection(bars)
         barlinecols.append(bars)
         cap_lo_x, cap_lo_y = (lo, positions) if horizontal else (positions, lo)

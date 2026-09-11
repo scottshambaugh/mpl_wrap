@@ -25,6 +25,9 @@ dependencies = [
     "numpy>=1.26",
 ]
 
+[project.optional-dependencies]
+geo = ["shapely>=2.0"]
+
 [project.urls]
 Repository = "https://github.com/scottshambaugh/mpl_wrap"
 Changelog = "https://github.com/scottshambaugh/mpl_wrap/blob/main/CHANGELOG.md"
@@ -36,6 +39,7 @@ dev = [
     "ruff>=0.14.0",
     "prek>=0.3",
     "mypy~=1.7",
+    "cartopy>=0.25.0",
 ]
 
 [build-system]

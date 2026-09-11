@@ -38,7 +38,11 @@ jobs:
         run: echo version=$(python -c "import sys; print('-'.join(str(v) for v in sys.version_info))") >> $GITHUB_OUTPUT
 
       - name: Install dependencies
-        run: uv sync --group dev --frozen
+        # cartopy (a test-only dependency) has no wheels for every python here
+        # and needs GEOS/PROJ to build from source. Fall back to the runtime
+        # dependencies alone where it cannot install: the geographic tests skip
+        # themselves when cartopy is missing.
+        run: uv sync --group dev --frozen || uv sync --frozen
 
       - name: Run tests and coverage
         run: |

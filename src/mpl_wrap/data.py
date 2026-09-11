@@ -13,6 +13,8 @@ import numpy as np
 from matplotlib.path import Path
 from matplotlib.transforms import Bbox
 
+from mpl_wrap.geo import LON_MAX, LON_MIN, fold_poles, pole_polyline
+
 __all__ = [
     "wrap_line",
     "wrap_points",
@@ -86,6 +88,7 @@ def wrap_line(
     *,
     wrapx: Iterable[float] | None = None,
     wrapy: Iterable[float] | None = None,
+    geographic: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Wrap a polyline into the given window(s), without plotting.
 
@@ -101,13 +104,18 @@ def wrap_line(
         Continuous (unwrapped) numeric data coordinates.
     wrapx, wrapy : (min, max), optional
         Wrap window per axis. None leaves that axis unwrapped.
+    geographic : bool, default False
+        Treat x and y as longitude and latitude in degrees. Latitude is folded
+        at the poles: a segment running past a pole is routed to it, broken,
+        and resumed from the pole at the antipodal longitude. ``wrapy`` is
+        ignored, and ``wrapx`` defaults to (-180, 180).
 
     Returns
     -------
     (np.ndarray, np.ndarray)
         The wrapped x and y coordinates, NaN-broken at seam crossings.
     """
-    xs, ys, _ = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy)
+    xs, ys, _ = _wrap_line_samples(x, y, wrapx=wrapx, wrapy=wrapy, geographic=geographic)
     return xs, ys
 
 
@@ -117,6 +125,7 @@ def _wrap_line_samples(
     *,
     wrapx: Iterable[float] | None = None,
     wrapy: Iterable[float] | None = None,
+    geographic: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Wrap a polyline, also returning where each input sample ended up.
 
@@ -127,7 +136,14 @@ def _wrap_line_samples(
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     pos = np.arange(len(x))
-    if wrapy is not None:
+    if geographic:
+        # Pole folding moves longitude to the antipodal meridian, so it has to
+        # run before longitude is folded into its window.
+        x, y, at = pole_polyline(x, y)
+        pos = at[pos]
+        if wrapx is None:
+            wrapx = (LON_MIN, LON_MAX)
+    elif wrapy is not None:
         x, y, at = _wrap_polyline(x, y, np.asarray(wrapy, dtype=float))
         pos = at[pos]
     if wrapx is not None:
@@ -147,6 +163,7 @@ def wrap_points(
     *,
     wrapx: Iterable[float] | None = None,
     wrapy: Iterable[float] | None = None,
+    geographic: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Fold points independently into the given window(s), without plotting.
 
@@ -162,6 +179,10 @@ def wrap_points(
         pointwise).
     wrapx, wrapy : (min, max), optional
         Wrap window per axis. None leaves that axis unwrapped.
+    geographic : bool, default False
+        Treat x and y as longitude and latitude in degrees. A point past a pole
+        is reflected back over it onto the antipodal meridian. ``wrapy`` is
+        ignored, and ``wrapx`` defaults to (-180, 180).
 
     Returns
     -------
@@ -172,6 +193,11 @@ def wrap_points(
     y = np.asarray(y, dtype=float)
     wx = None if wrapx is None else np.asarray(wrapx, dtype=float)
     wy = None if wrapy is None else np.asarray(wrapy, dtype=float)
+    if geographic:
+        x, y = fold_poles(x, y)
+        if wx is None:
+            wx = np.array([LON_MIN, LON_MAX])
+        return _wrap_points(x, wx), y
     return _wrap_points(x, wx), _wrap_points(y, wy)
 
 
@@ -266,10 +292,14 @@ def _contiguous_runs(idx: np.ndarray) -> list[np.ndarray]:
 
 
 def _wrap_to_segments(
-    x: np.ndarray, y: np.ndarray, wrapx: np.ndarray | None, wrapy: np.ndarray | None
+    x: np.ndarray,
+    y: np.ndarray,
+    wrapx: np.ndarray | None,
+    wrapy: np.ndarray | None,
+    geographic: bool = False,
 ) -> list[np.ndarray]:
     """Wrap a (NaN-broken) polyline and split it into finite runs for a LineCollection."""
-    xs, ys = wrap_line(x, y, wrapx=wrapx, wrapy=wrapy)
+    xs, ys = wrap_line(x, y, wrapx=wrapx, wrapy=wrapy, geographic=geographic)
     idx = np.nonzero(np.isfinite(xs) & np.isfinite(ys))[0]
     return [np.column_stack([xs[run], ys[run]]) for run in _contiguous_runs(idx) if len(run) >= 2]
 

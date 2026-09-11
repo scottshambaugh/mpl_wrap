@@ -75,6 +75,10 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `stairs_wrapped(ax, values, edges)`      | `ax.stairs`       |
 | `errorbar_wrapped(ax, x, y, yerr, xerr)` | `ax.errorbar`     |
 
+Plus `fill_around(ax, x, y, width)`, a corridor of constant width around a
+longitude/latitude track. See
+[Geographic data](#geographic-data-longitude-and-latitude).
+
 Each returns the same artist type as the method it mirrors, in the same `Axes`
 container. The two span helpers return a *list* of `Rectangle`, since a band
 across the seam is two rectangles.
@@ -139,6 +143,38 @@ plot_wrapped(ax, times, signal)
 <p align="center">
   <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/datetime_demo.png" alt="Datetime wrapping" width="600">
 </p>
+
+### Geographic data (longitude and latitude)
+
+When wrapping around a globe, latitude is not periodic. A track that runs past the north pole comes back down the opposite side of the Earth, 180 deg away in longitude.
+With `geographic=True`, `mpl_wrap` folds latitude at the poles and wraps longitude
+at the antimeridian. On a cartopy `GeoAxes` this is on by default, but it works with
+normal axes as well.
+
+```python
+import cartopy.crs as ccrs
+from mpl_wrap import fill_around, plot_wrapped, scatter_wrapped
+
+x = np.linspace(0, 720, 400)
+lon = -160 + 0.3 * x
+lat = x
+
+fig, ax = plt.subplots(subplot_kw={"projection": ccrs.Robinson()})
+ax.set_global()
+ax.coastlines()
+
+fill_around(ax, lon, lat, 5, alpha=0.3)  # 5 deg either side
+plot_wrapped(ax, lon, lat)
+scatter_wrapped(ax, lon[::40], lat[::40])
+```
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/geo_demo.png" alt="A ground track crossing the poles and the dateline on a Robinson projection" width="600">
+</p>
+
+`fill_around(ax, x, y, width)` fills a corridor of constant `width` (in degrees
+of arc) around a track. It needs *shapely* installed for geographic axes, which
+cartopy already installs. Without cartopy, use `pip install mpl_wrap[geo]`.
 
 ### Radians
 

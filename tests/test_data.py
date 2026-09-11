@@ -2,6 +2,7 @@ import numpy as np
 
 from mpl_wrap import wrap_line, wrap_points
 from mpl_wrap.data import _wrap_polyline
+from mpl_wrap.geo import fold_poles
 
 WRAP360 = (0.0, 360.0)
 
@@ -109,3 +110,54 @@ def test_wrap_points_folds_pointwise() -> None:
     assert np.allclose(xs, [0.5, 1.5, 2.5])  # x untouched without a wrapx window
     assert np.allclose(ys[:2], [10.0, 10.0])
     assert np.isnan(ys[2])
+
+
+# geographic pole folding (no cartopy needed)
+
+
+def test_fold_poles_reflects_past_the_pole() -> None:
+    lat = np.array([0.0, 45.0, 100.0, 180.0, 200.0, 280.0, -100.0, -90.0])
+    lon, out = fold_poles(np.zeros_like(lat), lat)
+    assert np.allclose(out, [0.0, 45.0, 80.0, 0.0, -20.0, -80.0, -80.0, -90.0])
+    # A reflected latitude moves to the antipodal meridian, an in-range one does not.
+    assert np.allclose(lon, [0.0, 0.0, 180.0, 180.0, 180.0, 0.0, 180.0, 0.0])
+
+
+def test_fold_poles_leaves_in_range_latitudes_alone() -> None:
+    lat = np.array([-90.0, -30.0, 0.0, 30.0, 89.0])
+    lon = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+    out_lon, out_lat = fold_poles(lon, lat)
+    assert np.array_equal(out_lat, lat)
+    assert np.array_equal(out_lon, lon)
+
+
+def test_wrap_line_geographic_routes_over_the_pole() -> None:
+    xs, ys = wrap_line([10.0, 10.0], [80.0, 100.0], wrapx=(-180.0, 180.0), geographic=True)
+    # up to the pole on the original meridian, a break, then down the antipodal one
+    assert np.allclose(xs[[0, 1]], [10.0, 10.0])
+    assert np.allclose(ys[[0, 1]], [80.0, 90.0])
+    assert np.isnan(xs[2]) and np.isnan(ys[2])
+    assert np.allclose(xs[[3, 4]], [-170.0, -170.0])
+    assert np.allclose(ys[[3, 4]], [90.0, 80.0])
+
+
+def test_wrap_line_geographic_ignores_wrapy() -> None:
+    args = ([0.0, 0.0], [80.0, 100.0])
+    a = wrap_line(*args, geographic=True)
+    b = wrap_line(*args, wrapy=(-90.0, 90.0), geographic=True)
+    assert np.allclose(a[0], b[0], equal_nan=True)
+    assert np.allclose(a[1], b[1], equal_nan=True)
+
+
+def test_geographic_longitude_window_defaults_to_the_globe() -> None:
+    xs, _ = wrap_line([170.0, 190.0], [0.0, 0.0], geographic=True)
+    assert np.allclose(xs[[0, -1]], [170.0, -170.0])
+    xs, _ = wrap_points([190.0], [0.0], geographic=True)
+    assert np.allclose(xs, [-170.0])
+
+
+def test_wrap_points_geographic_folds_and_wraps_longitude() -> None:
+    xs, ys = wrap_points([170.0], [100.0], wrapx=(-180.0, 180.0), geographic=True)
+    # 170 + 180 = 350, which folds back to -10
+    assert np.allclose(xs, [-10.0])
+    assert np.allclose(ys, [80.0])

@@ -23,6 +23,12 @@ __all__ = [
 ]
 
 
+# Builds a band's closed region from (t, f1, f2, along_x), as matplotlib
+# vertices and codes. `WrapFillBetween` uses one in place of tiling when the
+# band lies on a globe.
+RegionBuilder = Callable[[np.ndarray, np.ndarray, np.ndarray, bool], tuple[np.ndarray, np.ndarray]]
+
+
 class WrapFillBetween(FillBetweenPolyCollection):
     """The ``ax.fill_between`` / ``ax.fill_betweenx`` collection, holding a wrapped band.
 
@@ -54,10 +60,12 @@ class WrapFillBetween(FillBetweenPolyCollection):
         *,
         wrapx: np.ndarray | None = None,
         wrapy: np.ndarray | None = None,
+        region: RegionBuilder | None = None,
         **kwargs: Any,
     ) -> None:
         self._wrapx = wrapx
         self._wrapy = wrapy
+        self._region = region
         self._band_codes: np.ndarray | None = None
         self._edge_path: Path | None = None
         super().__init__(t_direction, t, f1, f2, **kwargs)
@@ -69,6 +77,8 @@ class WrapFillBetween(FillBetweenPolyCollection):
         only ever works in one direction.
         """
         along_x = self.t_direction == "x"
+        if self._region is not None:
+            return self._region_verts(t, f1, f2, along_x)
         wrap_t, wrap_f = (self._wrapx, self._wrapy) if along_x else (self._wrapy, self._wrapx)
         band = {
             "where": where,
@@ -87,6 +97,20 @@ class WrapFillBetween(FillBetweenPolyCollection):
         self._edge_path = Path(edge_verts, edge_codes) if len(edge_verts) else None
         # The tiles overshoot the window. Only their intersection is drawn.
         self._bbox = _band_extent(verts, self._wrapx, self._wrapy)
+        return [verts]
+
+    def _region_verts(self, t: Any, f1: Any, f2: Any, along_x: bool) -> list[np.ndarray]:
+        """Build the band as a closed region (used when a builder was given).
+
+        The region's rings are the band's boundary, with no tile joins inside,
+        so the same path strokes the edge.
+        """
+        assert self._region is not None  # only reached when one was supplied
+        t, f1, f2 = (np.asarray(a, dtype=float) for a in (t, f1, f2))
+        verts, codes = self._region(t, f1, f2, along_x)
+        self._band_codes = codes
+        self._edge_path = Path(verts, codes) if len(verts) else None
+        self._bbox = _band_extent(verts, None, None)
         return [verts]
 
     @allow_rasterization

@@ -202,9 +202,105 @@ def datetime_demo(savedir: Path = SAVEDIR) -> None:
     _save_demo(fig, savedir, "datetime_demo.png")
 
 
+def geo_demo(savedir: Path = SAVEDIR) -> None:
+    """The README geographic plot: a ground track over the poles and the dateline."""
+    try:
+        import cartopy.crs as ccrs
+    except ImportError:
+        print("Skipped geo_demo: cartopy is not installed")
+        return
+
+    from mpl_wrap import fill_around, scatter_wrapped
+
+    u = np.linspace(0, 720, 400)  # two turns round the orbit, in degrees
+    lon = -160 + 0.3 * u  # drifts east, past the antimeridian
+    lat = u  # runs past both poles
+
+    fig, ax = plt.subplots(figsize=(6, 3.4), subplot_kw={"projection": ccrs.Robinson()})
+    ax.set_global()
+    ax.coastlines(linewidth=0.4, color="0.55")
+    ax.gridlines(linewidth=0.3, color="0.9")
+    fill_around(ax, lon, lat, 5, facecolor="C0", alpha=0.3, label="5 deg corridor")
+    plot_wrapped(ax, lon, lat, color="C0", linewidth=1.4, label="ground track")
+    scatter_wrapped(ax, lon[::40], lat[::40], s=14, color="C0", zorder=3)
+    ax.legend(loc="lower left", fontsize=8, framealpha=0.9)
+
+    _save_demo(fig, savedir, "geo_demo.png")
+
+
+def geo_projections_demo(savedir: Path = SAVEDIR) -> None:
+    """A projection grid: the same ground covered whatever the projection.
+
+    A polar orbit's latitude argument runs past the poles rather than turning
+    around at them, and its longitude runs past the antimeridian, so every
+    helper here is fed continuous data well outside the usual lat/lon ranges.
+    The track is timed so that one pole crossing lands exactly on the dateline -
+    the corner of the lon/lat domain, where both seams have to be handled at once.
+    """
+    try:
+        import cartopy.crs as ccrs
+    except ImportError:
+        print("Skipped geo_projections_demo: cartopy is not installed")
+        return
+
+    from mpl_wrap import fill_around, scatter_wrapped
+
+    # Argument of latitude: the angle around the orbit, which for a polar orbit
+    # is the latitude itself once folded at the poles.
+    u = np.linspace(0.0, 1080.0, 3000)
+    lat = u
+    # Longitude drifts westward as the Earth turns beneath the orbit. The offset
+    # puts the pole crossing at u = 450 exactly on the antimeridian.
+    lon = -180.0 + 0.4 * (u - 450.0)
+    # Two bands on the track, for contrast. Orange is fill_around: a constant
+    # width on the ellipsoid, which holds over a pole and only looks wide there
+    # because the projection stretches longitude. Blue is fill_between_wrapped:
+    # an offset in degrees of latitude, which narrows to nothing at the pole.
+    lat_width = 12.0  # degrees of latitude, above and below the track
+    corridor_width = 2.7  # degrees of arc, perpendicular to the track
+
+    panels = (
+        ("PlateCarree", ccrs.PlateCarree(), None),
+        ("Mollweide", ccrs.Mollweide(), None),
+        ("Robinson", ccrs.Robinson(), None),
+        ("Mercator", ccrs.Mercator(), None),
+        ("Orthographic", ccrs.Orthographic(-40, 35), None),
+        ("NorthPolarStereo", ccrs.NorthPolarStereo(), [-180, 180, 25, 90]),
+        ("SouthPolarStereo", ccrs.SouthPolarStereo(), [-180, 180, -90, -25]),
+        ("InterruptedGoodeHomolosine", ccrs.InterruptedGoodeHomolosine(), None),
+        ("Geostationary", ccrs.Geostationary(), None),
+    )
+    ncols = 3
+    nrows = -(-len(panels) // ncols)
+    fig = plt.figure(figsize=(4.6 * ncols, 3.1 * nrows))
+    for i, (title, proj, extent) in enumerate(panels):
+        ax = fig.add_subplot(nrows, ncols, i + 1, projection=proj)
+        if extent is None:
+            ax.set_global()
+        else:
+            ax.set_extent(extent, crs=ccrs.PlateCarree())
+        ax.coastlines(linewidth=0.4, color="0.55")
+        ax.gridlines(linewidth=0.3, color="0.85")
+        # A GeoAxes is geographic by default, so the helpers fold at the poles
+        # and wrap longitude at the antimeridian without being told to.
+        set_wrap(ax, set_lims=False)
+        # The constant-width corridor goes down first, under the latitude band.
+        fill_around(ax, lon, lat, corridor_width, facecolor="#f6c28b", zorder=1)
+        fill_between_wrapped(
+            ax, lon, lat - lat_width, lat + lat_width, color="C0", alpha=0.22, zorder=2
+        )
+        plot_wrapped(ax, lon, lat, color="C0", linewidth=1.1, zorder=3)
+        scatter_wrapped(ax, lon[::150], lat[::150], s=9, color="C3", zorder=4)
+        ax.set_title(title, fontsize=9)
+
+    _save_demo(fig, savedir, "geo_projections.png")
+
+
 if __name__ == "__main__":
     basic_usage_demo()
     pi_demo()
     wrapy_demo()
     circle_demo()
     datetime_demo()
+    geo_demo()
+    geo_projections_demo()

@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from itertools import pairwise
 from typing import Any
 
@@ -789,3 +791,42 @@ def test_smoke_render_wrap_both_axes() -> None:
     semi = np.sqrt(1.2**2 - x_fill**2)
     fill_between_wrapped(ax, x_fill, -semi, semi, wrapx=window, wrapy=window, alpha=0.3)
     fig.canvas.draw()
+
+
+def test_import_does_not_pull_in_cartopy() -> None:
+    """cartopy is a test-only dependency: importing mpl_wrap must never load it."""
+    code = (
+        "import mpl_wrap, mpl_wrap.geo, sys; "
+        "assert not [m for m in sys.modules if m.startswith('cartopy')], "
+        "'mpl_wrap imported cartopy'"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_geographic_pole_folding_on_a_plain_axes() -> None:
+    """The geographic flag works off a GeoAxes too, with no cartopy involved."""
+    _, ax = plt.subplots()
+    set_wrap(ax, wrapx=(-180.0, 180.0), geographic=True)
+    (line,) = plot_wrapped(ax, [10.0, 10.0], [80.0, 100.0])
+    x, y = line.get_xydata().T
+    assert np.allclose(x[[0, 1]], 10.0) and np.allclose(y[[0, 1]], [80.0, 90.0])
+    assert np.isnan(x[2])
+    assert np.allclose(x[[3, 4]], -170.0) and np.allclose(y[[3, 4]], [90.0, 80.0])
+
+
+def test_geographic_plain_axes_limits_span_the_globe() -> None:
+    _, ax = plt.subplots()
+    set_wrap(ax, geographic=True)  # the longitude window defaults to the globe
+    assert ax.get_xlim() == (-180.0, 180.0)
+    assert ax.get_ylim() == (-90.0, 90.0)
+    assert np.array_equal(ax.get_yticks(), [-90.0, -45.0, 0.0, 45.0, 90.0])
+    # An explicit y window wins, and set_lims=False leaves the limits alone.
+    _, ax = plt.subplots()
+    set_wrap(ax, wrapx=(-180.0, 180.0), wrapy=(-60.0, 60.0), geographic=True)
+    assert ax.get_ylim() == (-60.0, 60.0)
+    _, ax = plt.subplots()
+    set_wrap(ax, wrapx=(-180.0, 180.0), geographic=True, set_lims=False)
+    assert ax.get_ylim() == (0.0, 1.0)

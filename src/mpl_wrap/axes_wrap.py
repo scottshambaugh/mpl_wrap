@@ -18,6 +18,7 @@ from matplotlib.patches import Rectangle
 from matplotlib.projections import register_projection
 
 from mpl_wrap import data as _data
+from mpl_wrap import geo as _geo
 from mpl_wrap import plot as _plot
 from mpl_wrap.artists import WrapFillBetween, WrapStepPatch
 from mpl_wrap.plot import WrapSpec
@@ -98,8 +99,10 @@ class AxesWrapBase(Axes):
         stored by ``set_wrap``, and datetime data and windows are converted
         through the axis units.
         """
+        g = _geo.resolve(self)
         x, y, wx, wy = _plot._prepare_xy(self, x, y, wrapx, wrapy)
-        return _data.wrap_line(x, y, wrapx=wx, wrapy=wy)
+        wx, wy = _plot._geo_windows(g, wx, wy)
+        return _data.wrap_line(x, y, wrapx=wx, wrapy=wy, geographic=g.on)
 
     def wrap_points(
         self, x: Any, y: Any, *, wrapx: WrapSpec = None, wrapy: WrapSpec = None
@@ -110,8 +113,10 @@ class AxesWrapBase(Axes):
         stored by ``set_wrap``, and datetime data and windows are converted
         through the axis units.
         """
+        g = _geo.resolve(self)
         x, y, wx, wy = _plot._prepare_xy(self, x, y, wrapx, wrapy)
-        return _data.wrap_points(x, y, wrapx=wx, wrapy=wy)
+        wx, wy = _plot._geo_windows(g, wx, wy)
+        return _data.wrap_points(x, y, wrapx=wx, wrapy=wy, geographic=g.on)
 
     def __reduce__(self) -> tuple[Any, ...]:
         # Wrap classes made by _axes_wrap_class cannot be pickled by reference,
@@ -169,6 +174,7 @@ def wrap_axes(
     edge_ticks: bool = True,
     seam_lines: bool = False,
     seam_kwargs: dict[str, Any] | None = None,
+    geographic: bool | None = None,
 ) -> AxesWrapBase:
     """Upgrade an existing axes in place to an `AxesWrap`.
 
@@ -181,7 +187,7 @@ def wrap_axes(
     ----------
     ax : matplotlib.axes.Axes
         The axes to upgrade, modified in place.
-    wrapx, wrapy, set_lims, edge_ticks, seam_lines, seam_kwargs
+    wrapx, wrapy, set_lims, edge_ticks, seam_lines, seam_kwargs, geographic
         Forwarded to `set_wrap`.
 
     Returns
@@ -198,5 +204,6 @@ def wrap_axes(
         edge_ticks=edge_ticks,
         seam_lines=seam_lines,
         seam_kwargs=seam_kwargs,
+        geographic=geographic,
     )
     return ax
