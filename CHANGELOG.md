@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 ### Added
+### Changed
+### Removed
+
+## [0.3.0] - 2026-09-10
+### Added
 * Geographic mode for longitude/latitude data: latitude past a pole
   is folded over it onto the antipodal meridian. On by default on a cartopy
   `GeoAxes`, and available on any axes with the `geographic=True` flag.
@@ -16,8 +21,6 @@
 
 ### Changed
 * `errorbar_wrapped` passes the caller's `transform` to its bars and caps
-
-### Removed
 
 ## [0.2.2] - 2026-07-28
 ### Changed
