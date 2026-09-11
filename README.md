@@ -75,12 +75,12 @@ the first argument plus optional `wrapx` / `wrapy` `(min, max)` windows:
 | `stairs_wrapped(ax, values, edges)`      | `ax.stairs`       |
 | `errorbar_wrapped(ax, x, y, yerr, xerr)` | `ax.errorbar`     |
 
-Plus `fill_around(ax, x, y, width)`, a corridor of constant `width` around a track.
+Plus `fill_around(ax, x, y, width)`, a fill of constant `width` around a line.
 It needs *shapely* (`pip install mpl_wrap[geo]`).
 
 Each returns the same artist type as the method it mirrors, in the same `Axes`
 container. The two span helpers return a *list* of `Rectangle`, since a band
-across the seam is two rectangles.
+across the wrap edge is two rectangles.
 
 Passing `wrapx=False` / `wrapy=False` disables wrapping for a single call (or
 clears the stored window when passed to `set_wrap`), and `wrapx=True` /
@@ -121,7 +121,7 @@ The data processing is also exposed on its own: `wrap_line` and `wrap_points`
 take data plus windows and return the wrapped arrays without plotting anything
 (also available as `AxesWrap` methods). `wrap_line(..., return_samples=True)`
 also returns where each input sample landed in the output, for putting markers
-or colours back on the data points after the seam routing inserts vertices.
+or colours back on the data points after the edge wrapping inserts vertices.
 
 ### Wrapping x, y, or both
 
@@ -172,14 +172,6 @@ scatter_wrapped(ax, lon[::40], lat[::40])
 <p align="center">
   <img src="https://raw.githubusercontent.com/scottshambaugh/mpl_wrap/main/docs/geo_demo.png" alt="A ground track crossing the poles and the dateline on a Robinson projection" width="600">
 </p>
-
-On a geographic axes `fill_around`'s `width` is in degrees of arc on the
-sphere. Geographic fills need shapely installed, which cartopy already installs.
-
-cartopy's path transform emits a shapely `RuntimeWarning` for every NaN-broken
-line on a `GeoAxes`, which is every edge crossing. `mpl_wrap` silences that one
-message when it draws on a `GeoAxes`. A plain `ax.plot` with a NaN in it does
-the same thing and is not affected.
 
 ### Radians
 
