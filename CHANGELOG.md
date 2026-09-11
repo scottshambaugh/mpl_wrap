@@ -7,18 +7,17 @@
 
 ## [Unreleased]
 ### Added
+### Changed
+### Removed
+
+## [0.3.1] - 2026-09-10
+### Added
 * `wrap_line(..., return_samples=True)` also returns the output index of each
   input sample, so markers, colours or labels can be put back on the data
   points after seam routing inserts vertices
 * `unfold_poles`, the inverse of the pole folding: it makes a geodetic track,
   whose latitude stays within the poles and whose longitude jumps by 180
-  degrees at each pole pass, continuous past the poles as the helpers expect
-
-### Changed
-* On a `GeoAxes` the helpers filter the shapely `RuntimeWarning` that
-  cartopy's path transform emits for every NaN-broken line, which is every
-  seam crossing. The filter matches that one message only
-### Removed
+  degrees at each pole pass, continuous past the poles instead
 
 ## [0.3.0] - 2026-09-10
 ### Added
