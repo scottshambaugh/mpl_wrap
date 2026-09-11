@@ -499,3 +499,11 @@ def test_geographic_plain_axes_still_autoscales() -> None:
     fill_between_wrapped(ax, np.linspace(-170.0, 170.0, 50), np.full(50, -45.0), np.full(50, 45.0))
     assert np.isfinite(ax.dataLim.get_points()).all()
     assert ax.get_xlim()[1] > 100.0  # not left at the default (0, 1)
+
+
+def test_geoaxes_seam_crossings_draw_without_the_shapely_warning(geoax) -> None:
+    """The filter mpl_wrap installs outranks even an 'error' filter set before it."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plot_wrapped(geoax, *track())  # crosses the seam, so the line is NaN-broken
+        geoax.figure.canvas.draw()

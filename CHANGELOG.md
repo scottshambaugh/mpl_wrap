@@ -15,6 +15,9 @@
   degrees at each pole pass, continuous past the poles as the helpers expect
 
 ### Changed
+* On a `GeoAxes` the helpers filter the shapely `RuntimeWarning` that
+  cartopy's path transform emits for every NaN-broken line, which is every
+  seam crossing. The filter matches that one message only
 ### Removed
 
 ## [0.3.0] - 2026-09-10

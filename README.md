@@ -185,6 +185,11 @@ undoes that, making the track continuous past the poles as the helpers expect:
 lon, lat = unfold_poles(lon, lat)  # then plot_wrapped(ax, lon, lat) as above
 ```
 
+cartopy's path transform emits a shapely `RuntimeWarning` for every NaN-broken
+line on a `GeoAxes`, which is every seam crossing. `mpl_wrap` silences that one
+message when it draws on a `GeoAxes`. A plain `ax.plot` with a NaN in it does
+the same thing and is not affected.
+
 ### Radians
 
 Windows that are multiples of π/2 are automatically detected and labeled with ticks that are fractions of π.

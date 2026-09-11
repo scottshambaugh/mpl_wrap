@@ -21,6 +21,7 @@ optional: it is imported lazily and only for an axes that is already a
 """
 
 import sys
+import warnings
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -590,6 +591,17 @@ def setup(ax: Axes, kwargs: dict[str, Any]) -> Geo:
         return Geo(False, None)
     if not is_geoaxes(ax):
         return Geo(True, None)
+    # cartopy's path transform runs every NaN-broken line through shapely,
+    # which warns about the NaN on each seam crossing. The warning carries
+    # nothing the user can act on, so it is filtered by its exact message.
+    # filterwarnings drops an identical filter before adding, so this is
+    # idempotent.
+    warnings.filterwarnings(
+        "ignore",
+        message="invalid value encountered in linestrings",
+        category=RuntimeWarning,
+        module="shapely",
+    )
     crs = kwargs.get("transform")
     if crs is None:
         crs = _ccrs().PlateCarree()
